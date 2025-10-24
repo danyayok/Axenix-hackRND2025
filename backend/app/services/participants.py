@@ -4,7 +4,7 @@ from app.repositories.room_repo import RoomRepository
 from app.repositories.user_repo import UserRepository
 from app.models.membership import Membership
 
-ONLINE_TTL_SECONDS = 45  # если heartbeat старше — считаем оффлайн для списка
+ONLINE_TTL_SECONDS = 45
 
 class ParticipantService:
     def __init__(self, m_repo: MembershipRepository, r_repo: RoomRepository, u_repo: UserRepository):
@@ -17,7 +17,6 @@ class ParticipantService:
         if not room:
             raise ValueError("room_not_found")
 
-        # --- уважаем приватность ---
         if room.is_private:
             if not invite_key or invite_key != room.invite_key:
                 raise ValueError("invite_required_or_invalid")
@@ -31,12 +30,8 @@ class ParticipantService:
             existing.last_seen = datetime.utcnow()
             return existing
 
-        # --- уважаем lock ---
-        # Разрешаем обход lock только owner/host.
-        # Кого считаем owner? Если создатель комнаты совпадает с этим user — owner.
         is_owner = (room.created_by is not None and str(room.created_by) == str(user_id))
         if room.is_locked and not is_owner:
-            # у гостя нет роли host до входа, поэтому просто запрещаем
             raise ValueError("room_locked")
 
         role = "owner" if is_owner else "guest"
@@ -71,5 +66,8 @@ class ParticipantService:
                 "status": m.status if is_online else "left" if m.status == "left" else "offline",
                 "last_seen": m.last_seen,
                 "is_online": is_online,
+                "mic_muted": m.mic_muted,
+                "cam_off": m.cam_off,
+                "hand_raised": m.hand_raised,
             })
         return res
