@@ -76,12 +76,11 @@ async def ws_room(
 
             mtype = msg.get("type")
 
-            # вычислим роль + mute_all (для запретов)
             room = await rrepo.get_by_slug(room_slug)
             membership = await mrepo.get_active(room_id=room.id, user_id=user_id) if room else None
             role = membership.role if membership else "guest"
             mute_all = bool(room.mute_all) if room else False
-            is_privileged = role in ("owner", "host")
+            is_privileged = role in ("owner", "admin")  # если у тебя уже "admin" вместо host — поменяй здесь
 
             # блокируем signaling и чат у гостей при mute_all
             if mute_all and not is_privileged and mtype in ("offer", "answer", "ice", "chat.message"):
@@ -139,31 +138,23 @@ async def ws_room(
                     await HUB.broadcast(room_slug, {"type": "state.changed", **latest})
                 continue
 
-            # --- self media (любой участник) ---
+            # --- self media ---
             if mtype == "media.self":
                 mic_muted = msg.get("mic_muted", None)
                 cam_off   = msg.get("cam_off", None)
-                try:
-                    state = await svc_media.update_self(room_slug=room_slug, user_id=user_id,
-                                                        mic_muted=mic_muted, cam_off=cam_off)
-                    await db.commit()
-                except ValueError as e:
-                    await _safe_json_send(websocket, {"type": "error", "reason": str(e)})
-                    continue
+                state = await svc_media.update_self(room_slug=room_slug, user_id=user_id,
+                                                    mic_muted=mic_muted, cam_off=cam_off)
+                await db.commit()
                 await HUB.broadcast(room_slug, {"type": "media.updated", **state})
                 continue
 
+            # --- руки ---
             if mtype == "hand.raise":
-                latest = await svc_state.set_hand(room_slug, user_id, True)
-                await db.commit()
-                await HUB.broadcast(room_slug, {"type": "hand.raised", "user_id": user_id, **latest})
-                continue
-
+                latest = await svc_state.set_hand(room_slug, user_id, True); await db.commit()
+                await HUB.broadcast(room_slug, {"type": "hand.raised", "user_id": user_id, **latest}); continue
             if mtype == "hand.lower":
-                latest = await svc_state.set_hand(room_slug, user_id, False)
-                await db.commit()
-                await HUB.broadcast(room_slug, {"type": "hand.lowered", "user_id": user_id, **latest})
-                continue
+                latest = await svc_state.set_hand(room_slug, user_id, False); await db.commit()
+                await HUB.broadcast(room_slug, {"type": "hand.lowered", "user_id": user_id, **latest}); continue
 
             if mtype == "leave":
                 break
