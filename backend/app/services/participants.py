@@ -17,6 +17,7 @@ class ParticipantService:
         if not room:
             raise ValueError("room_not_found")
 
+        # --- уважаем приватность ---
         if room.is_private:
             if not invite_key or invite_key != room.invite_key:
                 raise ValueError("invite_required_or_invalid")
@@ -27,11 +28,19 @@ class ParticipantService:
 
         existing = await self.m_repo.get_active(room_id=room.id, user_id=user_id)
         if existing:
-            # просто обновим last_seen
             existing.last_seen = datetime.utcnow()
             return existing
 
-        return await self.m_repo.create_active(room_id=room.id, user_id=user_id)
+        # --- уважаем lock ---
+        # Разрешаем обход lock только owner/host.
+        # Кого считаем owner? Если создатель комнаты совпадает с этим user — owner.
+        is_owner = (room.created_by is not None and str(room.created_by) == str(user_id))
+        if room.is_locked and not is_owner:
+            # у гостя нет роли host до входа, поэтому просто запрещаем
+            raise ValueError("room_locked")
+
+        role = "owner" if is_owner else "guest"
+        return await self.m_repo.create_active(room_id=room.id, user_id=user_id, role=role)
 
     async def leave(self, *, room_slug: str, user_id: int) -> Membership | None:
         room = await self.r_repo.get_by_slug(room_slug)
