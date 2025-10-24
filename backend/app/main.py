@@ -5,6 +5,7 @@ from app.core.config import settings
 from app.api import rooms as rooms_api
 from app.api import users as users_api
 from app.api import participants as participants_api
+from app.api import chat as chat_api
 from app.api import ws as ws_api
 from app.db.base import Base
 from app.db.session import engine
@@ -13,11 +14,12 @@ tags_meta = [
     {"name": "rooms", "description": "Создание, поиск и гостевой доступ в комнаты."},
     {"name": "users", "description": "Профили пользователей (MVP)."},
     {"name": "participants", "description": "Участники комнат: join/leave/heartbeat, список."},
+    {"name": "chat", "description": "История сообщений и real-time через WS."},
 ]
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.3.0",
+    version="0.4.0",
     default_response_class=ORJSONResponse,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -41,6 +43,7 @@ def favicon():
 app.include_router(rooms_api.router,        prefix="/api/rooms",        tags=["rooms"])
 app.include_router(users_api.router,        prefix="/api/users",        tags=["users"])
 app.include_router(participants_api.router, prefix="/api/participants", tags=["participants"])
+app.include_router(chat_api.router,         prefix="/api/chat",         tags=["chat"])
 
 # WS
 app.include_router(ws_api.router)
