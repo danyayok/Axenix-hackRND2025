@@ -1,5 +1,5 @@
 from typing import Optional, Sequence
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.membership import Membership
 
@@ -28,8 +28,8 @@ class MembershipRepository:
         m = await self.get_active(room_id=room_id, user_id=user_id)
         if not m:
             return None
-        m.status = "left"
         from datetime import datetime
+        m.status = "left"
         m.left_at = datetime.utcnow()
         await self.session.flush()
         await self.session.refresh(m)
@@ -48,5 +48,21 @@ class MembershipRepository:
     async def list_by_room(self, *, room_id: int, limit: int = 200) -> Sequence[Membership]:
         q = await self.session.execute(
             select(Membership).where(Membership.room_id == room_id).order_by(Membership.id.desc()).limit(limit)
+        )
+        return q.scalars().all()
+
+    # --- hands ---
+    async def set_hand(self, *, room_id: int, user_id: int, raised: bool) -> Optional[Membership]:
+        m = await self.get_active(room_id=room_id, user_id=user_id)
+        if not m:
+            return None
+        m.hand_raised = raised
+        await self.session.flush()
+        await self.session.refresh(m)
+        return m
+
+    async def list_hands(self, *, room_id: int) -> Sequence[Membership]:
+        q = await self.session.execute(
+            select(Membership).where(Membership.room_id == room_id, Membership.hand_raised == True)  # noqa: E712
         )
         return q.scalars().all()
