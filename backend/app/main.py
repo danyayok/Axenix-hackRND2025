@@ -5,6 +5,7 @@ from app.core.config import settings
 from app.api import rooms as rooms_api
 from app.api import users as users_api
 from app.api import participants as participants_api
+from app.api import ws as ws_api
 from app.db.base import Base
 from app.db.session import engine
 
@@ -16,7 +17,7 @@ tags_meta = [
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.2.0",
+    version="0.3.0",
     default_response_class=ORJSONResponse,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -40,3 +41,6 @@ def favicon():
 app.include_router(rooms_api.router,        prefix="/api/rooms",        tags=["rooms"])
 app.include_router(users_api.router,        prefix="/api/users",        tags=["users"])
 app.include_router(participants_api.router, prefix="/api/participants", tags=["participants"])
+
+# WS
+app.include_router(ws_api.router)
