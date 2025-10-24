@@ -1,7 +1,6 @@
 from datetime import datetime
 from sqlalchemy import String, Boolean, DateTime, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
-
 from app.db.base import Base
 
 class Room(Base):
@@ -12,6 +11,11 @@ class Room(Base):
     invite_key: Mapped[str | None] = mapped_column(String(64), unique=True, index=True, nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # --- состояние комнаты (sync state) ---
+    topic: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    is_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # запрет новых join
+    mute_all: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # клиенты должны уважать
 
     __table_args__ = (
         UniqueConstraint("slug", name="uq_room_slug"),
