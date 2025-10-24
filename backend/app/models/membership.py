@@ -13,5 +13,7 @@ class Membership(Base):
     left_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_seen: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
-    # --- состояние участника ---
+    # состояние участника
     hand_raised: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    mic_muted:  Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # self mute
+    cam_off:    Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # self video off

@@ -51,7 +51,6 @@ class MembershipRepository:
         )
         return q.scalars().all()
 
-    # --- hands ---
     async def set_hand(self, *, room_id: int, user_id: int, raised: bool) -> Optional[Membership]:
         m = await self.get_active(room_id=room_id, user_id=user_id)
         if not m:
@@ -61,7 +60,22 @@ class MembershipRepository:
         await self.session.refresh(m)
         return m
 
-    async def list_hands(self, *, room_id: int) -> Sequence[Membership]:
+    # NEW: обновление собственных медиа-флагов
+    async def set_media_flags(
+        self, *, room_id: int, user_id: int, mic_muted: bool | None = None, cam_off: bool | None = None
+    ) -> Optional[Membership]:
+        m = await self.get_active(room_id=room_id, user_id=user_id)
+        if not m:
+            return None
+        if mic_muted is not None:
+            m.mic_muted = bool(mic_muted)
+        if cam_off is not None:
+            m.cam_off = bool(cam_off)
+        await self.session.flush()
+        await self.session.refresh(m)
+        return m
+
+    async def list_hands(self, *, room_id: int):
         q = await self.session.execute(
             select(Membership).where(Membership.room_id == room_id, Membership.hand_raised == True)  # noqa: E712
         )

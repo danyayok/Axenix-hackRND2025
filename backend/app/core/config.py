@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_ttl_seconds: int = 24 * 3600  # 24h
 
+    # RTC / ICE (STUN/TURN) — простая статическая конфигурация для MVP
+    stun_url: str = "stun:stun.l.google.com:19302"
+    turn_url: str = ""            # например: "turn:turn.example.com:3478"
+    turn_username: str = ""       # например: "demo"
+    turn_password: str = ""       # например: "demo-pass"
+
     model_config = SettingsConfigDict(
         env_prefix="APP_",
         extra="ignore",
