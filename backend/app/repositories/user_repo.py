@@ -17,3 +17,12 @@ class UserRepository:
     async def get(self, user_id: int) -> Optional[User]:
         q = await self.session.execute(select(User).where(User.id == user_id))
         return q.scalar_one_or_none()
+
+    async def update_avatar_url(self, user_id: int, avatar_url: str) -> Optional[User]:
+        user = await self.get(user_id)
+        if not user:
+            return None
+        user.avatar_url = avatar_url
+        await self.session.flush()
+        await self.session.refresh(user)
+        return user
