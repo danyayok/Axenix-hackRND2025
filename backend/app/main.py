@@ -22,6 +22,7 @@ from app.api import metrics as metrics_api
 from app.db.base import Base
 from app.db.session import engine
 from app.middleware.metrics_middleware import MetricsMiddleware  # Импортируем исправленный middleware
+from fastapi.middleware.cors import CORSMiddleware
 
 Path("static/avatars").mkdir(parents=True, exist_ok=True)
 Path("static/covers").mkdir(parents=True, exist_ok=True)
@@ -50,6 +51,14 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_tags=tags_meta,
+)
+# Добавляем CORS middleware ПЕРВЫМ (это важно!)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],  # Оба варианта localhost
+    allow_credentials=True,
+    allow_methods=["*"],  # GET, POST, PUT, DELETE, OPTIONS, etc.
+    allow_headers=["*"],  # Все заголовки
 )
 
 app.add_middleware(MetricsMiddleware)

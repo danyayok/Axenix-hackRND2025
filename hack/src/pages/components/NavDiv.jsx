@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import Logo from 'C:/Users/Aleksss/Documents/Hack24/hack/src/pages/static/images/Logo1.svg';
+import Logo from '../static/images/Logo1.svg';
 
 export default function NavDivMeet(){
     return(

@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.status import HTTP_404_NOT_FOUND
 from pathlib import Path
 import shutil
+import bcrypt
 from typing import Optional
 
 from app.api.deps import get_db
@@ -11,13 +12,34 @@ from app.schemas.user import UserCreate, UserUpdate, UserOut
 
 router = APIRouter()
 
+
+# app/api/users.py
 @router.post("", response_model=UserOut)
 async def create_user(payload: UserCreate, db: AsyncSession = Depends(get_db)):
     repo = UserRepository(db)
-    user = await repo.create(nickname=payload.nickname, avatar_url=payload.avatar_url)
-    # если сразу прислали публичный ключ
+
+    # Если указан email, проверяем уникальность
+    if payload.email:
+        existing_user = await repo.get_by_email(payload.email)
+        if existing_user:
+            raise HTTPException(400, "Email already registered")
+
+    # Хешируем пароль если указан
+    password_hash = None
+    if payload.password:
+        password_hash = bcrypt.hashpw(payload.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+    # Создаем пользователя через СУЩЕСТВУЮЩИЙ метод
+    user = await repo.create(
+        nickname=payload.nickname,
+        avatar_url=payload.avatar_url,
+        email=payload.email,
+        password_hash=password_hash
+    )
+
     if payload.public_key_pem:
         user.public_key_pem = payload.public_key_pem
+
     await db.flush()
     await db.refresh(user)
     return UserOut.model_validate(user)
