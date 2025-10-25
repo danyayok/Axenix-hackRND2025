@@ -21,7 +21,7 @@ workflows:
       - build-and-test-task
   deploy-workflow:
     tasks:
-      - build-and-test-task
+      - build-and-export-task
       - deploy-task
 
 tasks:
@@ -69,13 +69,20 @@ tasks:
         script:
           - docker stop axenix-app || true
           - docker rm axenix-app || true
-  - name: deploy-task
+  - name: build-and-export-task
     cubes:
+      # Сборка Docker образа
+      - name: build-docker-image
+        script:
+          - cd backend
+          - docker build -t axenix-backend .
+      
       # Экспорт Docker образа в tar файл
       - name: export-docker-image
         script:
           - docker save axenix-backend -o axenix-backend.tar
-      
+  - name: deploy-task
+    cubes:
       # Установка sshpass для копирования по SSH
       - name: install-sshpass
         script:
@@ -93,4 +100,4 @@ tasks:
         script:
           - export SSHPASS=$SSH_PASSWORD
           - sshpass -e ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST -p 22 "cd /var/www/docker-image && docker load -i axenix-backend.tar && docker stop axenix-app || true && docker rm axenix-app || true && docker run -d --name axenix-app -p 8000:8000 axenix-backend"
-          - echo "Deployment completed successfully"
+          - echo "Deployment completed successfully""
