@@ -14,11 +14,15 @@ from app.api import rtc as rtc_api
 from app.api import moderation as moderation_api
 from app.api import sync as sync_api
 from app.api import crypto as crypto_api
+from app.api import covers as covers_api          # NEW
+from app.api import recordings as recordings_api  # NEW
 from app.api import ws as ws_api
 from app.db.base import Base
 from app.db.session import engine
 
 Path("static/avatars").mkdir(parents=True, exist_ok=True)
+Path("static/covers").mkdir(parents=True, exist_ok=True)     # NEW
+Path("static/records").mkdir(parents=True, exist_ok=True)    # NEW
 
 tags_meta = [
     {"name": "rooms", "description": "Создание, поиск и гостевой доступ в комнаты."},
@@ -28,14 +32,16 @@ tags_meta = [
     {"name": "state", "description": "Состояние комнаты: topic/lock/mute_all, поднятые руки."},
     {"name": "auth", "description": "Гостевые токены (JWT) для подключения к WS."},
     {"name": "rtc", "description": "ICE-конфигурация (STUN/TURN) для WebRTC."},
-    {"name": "moderation", "description": "Роли (owner/admin/guest), kick и принудительный mute."},
+    {"name": "moderation", "description": "Роли/кик/форс-мьют/выступление/видео."},
     {"name": "sync", "description": "Синхронизация событий комнаты (sequence + догруз)."},
-    {"name": "crypto", "description": "Ключ комнаты и обмен обёртками (RSA-OAEP), шифр-чат."},
+    {"name": "crypto", "description": "Ключ комнаты и обмен (RSA-OAEP), шифр-чат."},
+    {"name": "covers", "description": "Обложки конференций (upload/get/delete)."},
+    {"name": "recordings", "description": "Загрузка/список/удаление записей; раздача из /static/records."},
 ]
 
 app = FastAPI(
     title=settings.app_name,
-    version="1.0.0",
+    version="1.1.0",
     default_response_class=ORJSONResponse,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -66,8 +72,11 @@ app.include_router(rtc_api.router,          prefix="/api/rtc",          tags=["r
 app.include_router(moderation_api.router,   prefix="/api/moderation",   tags=["moderation"])
 app.include_router(sync_api.router,         prefix="/api/sync",         tags=["sync"])
 app.include_router(crypto_api.router,       prefix="/api/crypto",       tags=["crypto"])
+app.include_router(covers_api.router,       prefix="/api/covers",       tags=["covers"])           # NEW
+app.include_router(recordings_api.router,   prefix="/api/recordings",   tags=["recordings"])       # NEW
 
 # WS
 app.include_router(ws_api.router)
 
+# Static
 app.mount("/static", StaticFiles(directory="static"), name="static")

@@ -34,3 +34,17 @@ class ModerationService:
         m = await self.m_repo.kick(room_id=room.id, user_id=target_user_id)
         if not m: raise ValueError("membership_not_found")
         return {"user_id": m.user_id}
+
+    # NEW: выдача/снятие права выступления
+    async def set_speaker(self, room_slug: str, target_user_id: int, can_speak: bool):
+        room = await self._room_or_err(room_slug)
+        m = await self.m_repo.set_can_speak(room_id=room.id, user_id=target_user_id, can_speak=can_speak)
+        if not m: raise ValueError("membership_not_found")
+        return {"user_id": m.user_id, "can_speak": m.can_speak}
+
+    # NEW: принудительно выключить/разрешить видео
+    async def set_video_off(self, room_slug: str, target_user_id: int, video_off: bool):
+        room = await self._room_or_err(room_slug)
+        m = await self.m_repo.set_admin_video_off(room_id=room.id, user_id=target_user_id, video_off=video_off)
+        if not m: raise ValueError("membership_not_found")
+        return {"user_id": m.user_id, "admin_video_off": m.admin_video_off, "cam_off": m.cam_off}
