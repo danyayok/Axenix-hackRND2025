@@ -7,6 +7,7 @@ import Notification from './pages/Notification.jsx';
 import PlanConference from './pages/Plan-Conference.jsx';
 import Settings from './pages/Settings.jsx';
 import Profile from './pages/Profile.jsx';
+import CreateConference from './pages/Create.jsx';
 
 import './App.css'
 
@@ -20,7 +21,8 @@ function App() {
         <Route path='/Notification' element={<Notification />} />
         <Route path='/Settings' element={<Settings />} />
         <Route path='/Profile' element={<Profile />} />
-        <Route path='/Plan-Conference' element={<PlanConference />} /> {/* Добавьте этот маршрут */}
+        <Route path='/Plan-Conference' element={<PlanConference />} />
+        <Route path='/Create' element={<CreateConference/>}></Route> 
         <Route path='*' element={<Error />} />
       </Routes>
     </>

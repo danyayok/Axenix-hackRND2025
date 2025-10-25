@@ -1,0 +1,128 @@
+.create-conference-section {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 2rem 0;
+  }
+  
+  .create-title {
+    font-family: var(--font-main);
+    font-weight: 600;
+    font-size: 2.5rem;
+    color: var(--text-dark);
+    text-align: center;
+    margin-bottom: 3rem;
+  }
+  
+  .conference-form {
+    background: white;
+    border-radius: 25px;
+    padding: 3rem;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+  }
+  
+  /* Группы полей формы */
+  .form-group {
+    margin-bottom: 2rem;
+  }
+  
+  .form-label {
+    font-family: var(--font-main);
+    font-weight: 600;
+    color: var(--text-dark);
+    font-size: 1.25rem;
+    margin-bottom: 1rem;
+    display: block;
+  }
+  
+  .form-input {
+    width: 100%;
+    padding: 1.25rem 1.5rem;
+    border: none;
+    border-radius: 15px;
+    font-size: 1.125rem;
+    font-family: var(--font-main);
+    background: #f8fafc;
+    color: #334155;
+    transition: all 0.3s ease;
+  }
+  
+  .form-input:focus {
+    outline: none;
+    background: #f1f5f9;
+  }
+  
+  /* Текстовое поле для описания */
+  .form-textarea {
+    resize: vertical;
+    min-height: 120px;
+  }
+  
+  /* Поле даты и времени */
+  .datetime-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+  
+  /* Кнопка создания */
+  .create-button {
+    width: 100%;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    padding: 1.5rem 2rem;
+    border-radius: 15px;
+    font-size: 1.25rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-top: 1rem;
+  }
+  
+  .create-button:hover {
+    background: #6a1f8f;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(124, 37, 165, 0.3);
+  }
+  
+  /* Адаптивность для мобильных */
+  @media (max-width: 390px) {
+    .create-conference-section {
+      padding: 1rem;
+      max-width: 100%;
+    }
+  
+    .create-title {
+      font-size: 2rem;
+      margin-bottom: 2rem;
+    }
+  
+    .conference-form {
+      padding: 2rem;
+      border-radius: 20px;
+    }
+  
+    .form-group {
+      margin-bottom: 1.5rem;
+    }
+  
+    .form-label {
+      font-size: 1.125rem;
+      margin-bottom: 0.75rem;
+    }
+  
+    .form-input {
+      padding: 1rem 1.25rem;
+      font-size: 1rem;
+    }
+  
+    .datetime-group {
+      grid-template-columns: 1fr;
+      gap: 1rem;
+    }
+  
+    .create-button {
+      padding: 1.25rem 1.5rem;
+      font-size: 1.125rem;
+    }
+  }
