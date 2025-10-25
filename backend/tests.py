@@ -76,7 +76,7 @@ class TestVideoConferenceAPI:
         # Смотрим на схему RoomCreate из Swagger
         room_data = {
             "title": f"Test Room {int(time.time())}",
-            "is_private": False,
+            "is_locked": False,
             "create_invite": True,
             "created_by": str()
         }
@@ -502,8 +502,7 @@ def run_all_tests():
     print(f"\n💡 ВЫВОДЫ:")
     if failed == 0:
         print("🎉 API работает стабильно! Основные функции доступны.")
-    print("📝 Создание комнат требует настройки - проверьте схему RoomCreate")
-    print("🔧 Рекомендуется проверить соответствие моделей и схем")
+
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ class Room(Base):
 
     # состояние комнаты
     topic: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    is_private: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     mute_all: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 

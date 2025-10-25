@@ -52,12 +52,12 @@ app = FastAPI(
     openapi_tags=tags_meta,
 )
 
-# Добавляем middleware ПРАВИЛЬНО - без дополнительных аргументов
 app.add_middleware(MetricsMiddleware)
 
 @app.on_event("startup")
 async def on_startup() -> None:
     async with engine.begin() as conn:
+        # await conn.run_sync(Base.metadata.drop_all) Дропните если ошибки тип none is_private и т.д.
         await conn.run_sync(Base.metadata.create_all)
 
 @app.get("/", include_in_schema=False)
