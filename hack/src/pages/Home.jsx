@@ -1,22 +1,44 @@
-import { useState } from 'react'
-import { Routes, Route } from 'react-router-dom';
-import Error from './404';
-import Conference from './Conf';
-import Invite from './Invite';
-import PlanConference from './Plan-Conference';
-import './static/Home.css'
-
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import './static/Home.css';
 // Импортируем все изображения
 import Vector from './static/images/Vector.png';
 import Vector1 from './static/images/Vector-1.png';
 import Vector2 from './static/images/Vector-2.png';
 import Vector3 from './static/images/Vector-3.png';
-import Logo from './static/images/Logo 1.png';
+import Logo from './static/images/Logo1.svg';
 import ProfileIcon from './static/images/profile.png';
 import CreateIcon from './static/images/create.png';
 import EnterIcon from './static/images/enter.png';
+import NavDivMeet from './components/NavDiv';
 
-export default function Home(){
+
+export default function Home() {
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [conferenceLink, setConferenceLink] = useState('');
+
+    const openModal = () => setIsModalOpen(true);
+    const closeModal = () => {
+        setIsModalOpen(false);
+        setConferenceLink('');
+    };
+
+    const handleJoinConference = () => {
+        // Логика входа в конференцию
+        console.log('Joining conference:', conferenceLink);
+        closeModal();
+    };
+    
+
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter') {
+            handleJoinConference();
+        }
+        if (e.key === 'Escape') {
+            closeModal();
+        }
+    };
+
     return (
         <>
             <div className="background-elements">
@@ -25,14 +47,7 @@ export default function Home(){
                 <img className="vector" src={Vector2} alt="" />
                 <img className="vector" src={Vector3} alt="" />
             </div>
-
-            <header className="header">
-                <img className="logo" src={Logo} alt="Логотип сервиса" />
-                <nav className="nav-controls">
-                    <a href="#" className="nav-item">Уведомления</a>
-                    <a href="#" className="nav-item">Настройки</a>
-                </nav>
-            </header>
+            <NavDivMeet />
 
             <main className="main-content">
                 <section className="hero-section">
@@ -44,17 +59,21 @@ export default function Home(){
                     <h2 className="action-title">Выберите действие</h2>
                     
                     <div className="actions-grid">
-                        <div className="action-card">
-                            <img className="action-icon" src={ProfileIcon} alt="Профиль" />
-                            <div className="action-text profile">Профиль</div>
-                        </div>
+                        <Link to="/Profile" className="action-card-link">
+                            <div className="action-card">
+                                <img className="action-icon" src={ProfileIcon} alt="Профиль" />
+                                <div className="action-text profile">Профиль</div>
+                            </div>
+                        </Link>
 
-                        <div className="action-card">
-                            <img className="action-icon create" src={CreateIcon} alt="Создать конференцию" />
-                            <div className="action-text">Создать конференцию</div>
-                        </div>
+                        <Link to="/Plan-Conference" className="action-card-link">
+                            <div className="action-card">
+                                <img className="action-icon create" src={CreateIcon} alt="Создать конференцию" />
+                                <div className="action-text">Создать конференцию</div>
+                            </div>
+                        </Link>
 
-                        <div className="action-card">
+                        <div className="action-card" onClick={openModal}>
                             <div className="action-icon enter">
                                 <img className="exclude" src={EnterIcon} alt="Войти в конференцию" />
                             </div>
@@ -62,6 +81,40 @@ export default function Home(){
                         </div>
                     </div>
                 </section>
+
+                {/* Модальное окно входа в конференцию */}
+                {isModalOpen && (
+                    <div className="modal-overlay active" onClick={closeModal}>
+                        <div className="modal" onClick={(e) => e.stopPropagation()}>
+                            <div className="modal-header">
+                                <h2 className="modal-title">Войдите в конференцию</h2>
+                                <button className="modal-close" onClick={closeModal}>×</button>
+                            </div>
+                            <div className="modal-body">
+                                <p className="modal-description">Вставьте ссылку-приглашение</p>
+                                <input 
+                                    type="text" 
+                                    className="modal-input" 
+                                    placeholder="https://videoconf.com/room/abc123"
+                                    value={conferenceLink}
+                                    onChange={(e) => setConferenceLink(e.target.value)}
+                                    onKeyDown={handleKeyDown}
+                                    autoFocus
+                                />
+                            </div>
+                            <div className="modal-footer">
+                                <button className="btn-secondary" onClick={closeModal}>Отмена</button>
+                                <button 
+                                    className="btn-primary" 
+                                    onClick={handleJoinConference}
+                                    disabled={!conferenceLink.trim()}
+                                >
+                                    Войти
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </main>
 
             <footer className="footer">
