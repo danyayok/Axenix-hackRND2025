@@ -1,0 +1,125 @@
+on:
+  push:
+    - workflows: [build-and-test-workflow]
+      filter:
+        branches: ["main"]
+  pull_request:
+    - workflows: [build-and-test-workflow]
+      filter:
+        target_branches: ["main"]
+    - workflows: [deploy-workflow]
+      filter:
+        target_branches: ["dev-deploy"]
+  push:
+    - workflows: [deploy-workflow]
+      filter:
+        branches: ["dev-deploy"]
+
+workflows:
+  build-and-test-workflow:
+    tasks:
+      - build-and-test-task
+  deploy-workflow:
+    tasks:
+      - build-and-export-task
+      - deploy-task
+
+tasks:
+  - name: build-and-test-task
+    cubes:
+      # Сборка Docker образа
+      - name: build-docker-image
+        script:
+          - cd backend
+          - docker build -t axenix-backend .
+      
+      # Запуск Docker контейнера
+      - name: run-docker-container
+        script:
+          - docker run -d --name axenix-app -p 8000:8000 axenix-backend
+          # Ждем запуск приложения
+          - sleep 10
+      
+      # Проверка работоспособности контейнера
+      - name: check-container-running
+        script:
+          - docker ps | grep axenix-app
+          # Проверяем, что приложение отвечает
+          - curl -f http://localhost:8000/docs || (echo "App is not responding" && exit 1)
+      
+      # Установка Python для тестов
+      - name: setup-python
+        image: docker.io/library/python:3.11
+        script:
+          - python -m pip install --upgrade pip
+      
+      # Установка зависимостей для тестов
+      - name: install-test-dependencies
+        script:
+          - pip install pytest requests
+      
+      # Запуск тестов
+      - name: run-tests
+        script:
+          - cd backend
+          - python tests.py
+      
+      # Остановка контейнера (всегда выполняется)
+      - name: stop-container
+        script:
+          - docker stop axenix-app || true
+          - docker rm axenix-app || true
+  - name: build-and-export-task
+    cubes:
+      # Сборка Docker образа
+      - name: build-docker-image
+        script:
+          - echo "Building Docker image..."
+          - cd backend
+          - docker build -t axenix-backend .
+          - echo "Docker image build completed"
+          # Проверка, что образ создан
+          - docker images axenix-backend
+      
+      # Экспорт Docker образа в tar файл
+      - name: export-docker-image
+        script:
+          - echo "Exporting Docker image to tar file..."
+          - docker save axenix-backend -o axenix-backend.tar
+          - echo "Docker image exported successfully"
+          # Проверка, что файл создан
+          - ls -la axenix-backend.tar
+  - name: deploy-task
+    cubes:
+      # Установка sshpass для копирования по SSH
+      - name: install-sshpass
+        script:
+          - echo "Installing sshpass..."
+          - apt-get update && apt-get install -y sshpass
+      
+      # Проверка переменных окружения
+      - name: check-env-variables
+        script:
+          - echo "Checking environment variables..."
+          - echo "SSH_USER: ${SSH_USER}"
+          - echo "SSH_HOST: ${SSH_HOST}"
+          - echo "SSH_PASSWORD length: ${#SSH_PASSWORD}"
+          - if [ -z "$SSH_USER" ] || [ -z "$SSH_HOST" ] || [ -z "$SSH_PASSWORD" ]; then echo "Error: Required SSH environment variables are not set" && exit 1; fi
+          - echo "All required environment variables are set"
+      
+      # Копирование Docker образа на сервер по SSH
+      - name: copy-image-to-server
+        script:
+          - echo "Copying Docker image to server..."
+          - export SSHPASS=$SSH_PASSWORD
+          - sshpass -e ssh -o StrictHostKeyChecking=no ${SSH_USER}@${SSH_HOST} -p 22 "mkdir -p /var/www/docker-image"
+          - sshpass -e scp -o StrictHostKeyChecking=no axenix-backend.tar ${SSH_USER}@${SSH_HOST}:/var/www/docker-image/
+          - echo "Docker image copied to server successfully"
+      
+      # Загрузка образа и запуск контейнера на сервере
+      - name: load-and-run-container
+        script:
+          - echo "Loading image and running container on server..."
+          - export SSHPASS=$SSH_PASSWORD
+          - sshpass -e ssh -o StrictHostKeyChecking=no ${SSH_USER}@${SSH_HOST} -p 22 "cd /var/www/docker-image && ls -la && docker load -i axenix-backend.tar && docker images && docker stop axenix-app || true && docker rm axenix-app || true && docker run -d --name axenix-app -p 8000:8000 axenix-backend && docker ps | grep axenix-app"
+          - echo "Deployment completed successfully""
