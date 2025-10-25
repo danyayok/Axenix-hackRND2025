@@ -7,11 +7,22 @@ on:
     - workflows: [build-and-test-workflow]
       filter:
         target_branches: ["main"]
+    - workflows: [deploy-workflow]
+      filter:
+        target_branches: ["dev-deploy"]
+  push:
+    - workflows: [deploy-workflow]
+      filter:
+        branches: ["dev-deploy"]
 
 workflows:
   build-and-test-workflow:
     tasks:
       - build-and-test-task
+  deploy-workflow:
+    tasks:
+      - build-and-test-task
+      - deploy-task
 
 tasks:
   - name: build-and-test-task
@@ -58,3 +69,15 @@ tasks:
         script:
           - docker stop axenix-app || true
           - docker rm axenix-app || true
+  - name: deploy-task
+    cubes:
+      # Деплой по SSH
+      - name: deploy-via-ssh
+        script:
+          - echo "Deploying via SSH..."
+          - apt-get update && apt-get install -y sshpass
+          - export SSHPASS=$SSH_PASSWORD
+          - sshpass -e ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST -p 22 "echo 'Connected to server'"
+          # Здесь можно добавить команды для деплоя, например:
+          # - sshpass -e ssh -o StrictHostKeyChecking=no $SSH_USER@$SSH_HOST -p 22 "cd /path/to/app && docker pull your-image && docker stop app-container && docker run -d --name app-container -p 8000:8000 your-image"
+          - echo "Deployment completed"
