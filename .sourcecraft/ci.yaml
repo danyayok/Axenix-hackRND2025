@@ -1,60 +1,62 @@
+# CI/CD конфигурация для сборки Docker-образа и деплоя через SSH
+
 on:
   push:
-    - workflows: [build-and-test-workflow]
+    - workflows: [build-and-deploy]
       filter:
         branches: ["main"]
-  pull_request:
-    - workflows: [build-and-test-workflow]
-      filter:
-        target_branches: ["main"]
 
 workflows:
-  build-and-test-workflow:
+  build-and-deploy:
     tasks:
-      - build-and-test-task
+      - build-and-push-task
+      - deploy-task
 
 tasks:
-  - name: build-and-test-task
+  - name: build-and-push-task
+    env:
+      IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/axenix
     cubes:
-      # Сборка Docker образа
-      - name: build-docker-image
+      - name: docker-build
         script:
-          - cd backend
-          - docker build -t axenix-backend .
+          - echo "Building Docker image..."
+          - docker build -t $IMAGE_NAME:$CI_COMMIT_SHORT_SHA .
+          - docker tag $IMAGE_NAME:$CI_COMMIT_SHORT_SHA $IMAGE_NAME:latest
       
-      # Запуск Docker контейнера
-      - name: run-docker-container
+      - name: docker-login
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
         script:
-          - docker run -d --name axenix-app -p 8000:8000 axenix-backend
-          # Ждем запуск приложения
-          - sleep 10
+          - echo "Logging in to Docker Hub..."
+          - echo $DOCKER_PASSWORD | docker login --username $DOCKER_USERNAME --password-stdin
       
-      # Проверка работоспособности контейнера
-      - name: check-container-running
+      - name: docker-push
+        env:
+          IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/axenix
         script:
-          - docker ps | grep axenix-app
-          # Проверяем, что приложение отвечает
-          - curl -f http://localhost:8000/docs || (echo "App is not responding" && exit 1)
+          - echo "Pushing Docker image to registry..."
+          - docker push $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
+          - docker push $IMAGE_NAME:latest
+  
+  - name: deploy-task
+    cubes:
+      - name: setup-ssh
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        script:
+          - echo "Setting up SSH access..."
+          - mkdir -p ~/.ssh
+          - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          - chmod 600 ~/.ssh/id_rsa
+          - ssh-keyscan ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+          - chmod 700 ~/.ssh
       
-      # Установка Python для тестов
-      - name: setup-python
-        image: docker.io/library/python:3.11
+      - name: deploy-via-ssh
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/axenix
         script:
-          - python -m pip install --upgrade pip
-      
-      # Установка зависимостей для тестов
-      - name: install-test-dependencies
-        script:
-          - pip install pytest requests
-      
-      # Запуск тестов
-      - name: run-tests
-        script:
-          - cd backend
-          - python tests.py
-      
-      # Остановка контейнера (всегда выполняется)
-      - name: stop-container
-        script:
-          - docker stop axenix-app || true
-          - docker rm axenix-app || true
+          - echo "Deploying via SSH..."
+          - ssh $SSH_USER@$SSH_HOST "docker pull $IMAGE_NAME:latest && docker stop axenix || true && docker rm axenix || true && docker run -d --name axenix -p 8080:8080 $IMAGE_NAME:latest"
