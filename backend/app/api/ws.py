@@ -12,10 +12,12 @@ from app.repositories.membership_repo import MembershipRepository
 from app.repositories.room_repo import RoomRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.message_repo import MessageRepository
+from app.repositories.event_repo import EventRepository
 from app.services.participants import ParticipantService
 from app.services.chat import ChatService
 from app.services.state import StateService
 from app.services.media import MediaService
+from app.services.sync import SyncService
 from app.core.security import get_user_id_from_token
 
 router = APIRouter()
@@ -42,10 +44,13 @@ async def ws_room(
     db: AsyncSession = SessionLocal()
     rrepo = RoomRepository(db)
     mrepo = MembershipRepository(db)
+    erepo = EventRepository(db)
+
     svc_part = ParticipantService(mrepo, rrepo, UserRepository(db))
     svc_chat = ChatService(MessageRepository(db), rrepo, UserRepository(db))
     svc_state = StateService(rrepo, mrepo)
     svc_media = MediaService(rrepo, mrepo)
+    svc_sync = SyncService(rrepo, erepo)
 
     try:
         # ---- JOIN ----
@@ -60,12 +65,16 @@ async def ws_room(
         await HUB.join(room_slug, user_id, websocket)
         await _safe_json_send(websocket, {"type": "joined", "room_slug": room_slug, "user_id": user_id})
 
-        # снапшот состояния подключившемуся
+        # снапшот состояния + sync.info
         snap = await svc_state.snapshot(room_slug)
         await _safe_json_send(websocket, {"type": "state.snapshot", **snap})
+        next_seq = await svc_sync.next_seq()
+        await _safe_json_send(websocket, {"type": "sync.info", "next_seq": next_seq})
 
-        # известим остальных
+        # известим остальных (и залогируем событие)
         await HUB.broadcast(room_slug, {"type": "member.joined", "user_id": user_id}, exclude={user_id})
+        ev = await svc_sync.append(room_slug=room_slug, type_="member.joined", payload={"user_id": user_id})
+        await db.commit()
 
         # ---- MAIN LOOP ----
         while True:
@@ -86,7 +95,7 @@ async def ws_room(
 
             mtype = msg.get("type")
 
-            # вычислим роль, mute_all и admin_muted
+            # роль/ mute flags
             room = await rrepo.get_by_slug(room_slug)
             membership = await mrepo.get_active(room_id=room.id, user_id=user_id) if room else None
             role = membership.role if membership else "guest"
@@ -94,15 +103,20 @@ async def ws_room(
             admin_muted = bool(membership.admin_muted) if membership else False
             is_privileged = role in ("owner", "admin")
 
-            # блокировки:
-            #  - mute_all ограничивает гостей
-            #  - admin_muted ограничивает конкретного участника
+            # ограничения
             if (mute_all and not is_privileged) or admin_muted:
                 if mtype in ("offer", "answer", "ice", "chat.message"):
                     await _safe_json_send(websocket, {"type": "error", "reason": "muted_by_admin"})
                     continue
 
-            # --- WebRTC signaling (to-one) ---
+            # --- SYNC subscribe (догруз событий) ---
+            if mtype == "sync.sub":
+                after_seq = int(msg.get("after_seq", 0))
+                items = await svc_sync.list_after(room_slug=room_slug, after_seq=after_seq, limit=int(msg.get("limit", 200)))
+                await _safe_json_send(websocket, {"type": "sync.batch", "items": items})
+                continue
+
+            # --- WebRTC signaling ---
             if mtype in ("offer", "answer", "ice"):
                 to_uid = msg.get("to")
                 if not isinstance(to_uid, int):
@@ -113,7 +127,7 @@ async def ws_room(
                 await HUB.send_to(room_slug, to_uid, payload)
                 continue
 
-            # --- chat send (persist + broadcast) ---
+            # --- chat send ---
             if mtype == "chat.message":
                 text = msg.get("text", "")
                 try:
@@ -123,18 +137,24 @@ async def ws_room(
                     await _safe_json_send(websocket, {"type": "error", "reason": str(e)})
                     continue
 
-                payload = {
-                    "type": "chat.message",
-                    "id": saved.id,
-                    "room_slug": room_slug,
-                    "user_id": user_id,
-                    "text": saved.text,
-                    "created_at": saved.created_at.isoformat() + "Z",
-                }
+                # лог + bcast c seq
+                ev = await svc_sync.append(
+                    room_slug=room_slug, type_="chat.message",
+                    payload={
+                        "id": saved.id,
+                        "room_slug": room_slug,
+                        "user_id": user_id,
+                        "text": saved.text,
+                        "created_at": saved.created_at.isoformat() + "Z",
+                    }
+                )
+                await db.commit()
+
+                payload = {"type": "chat.message", "seq": ev.id, **json.loads(ev.payload)}
                 await HUB.broadcast(room_slug, payload)
                 continue
 
-            # --- typing indicator (broadcast to others) ---
+            # --- typing indicator ---
             if mtype == "chat.typing":
                 is_typing = bool(msg.get("is_typing", True))
                 await HUB.broadcast(
@@ -152,56 +172,52 @@ async def ws_room(
                 changed = False
                 latest = None
                 if "topic" in msg:
-                    latest = await svc_state.set_topic(room_slug, msg.get("topic"))
-                    await db.commit()
-                    changed = True
+                    latest = await svc_state.set_topic(room_slug, msg.get("topic")); await db.commit(); changed = True
                 if "is_locked" in msg:
-                    latest = await svc_state.set_locked(room_slug, bool(msg.get("is_locked")))
-                    await db.commit()
-                    changed = True
+                    latest = await svc_state.set_locked(room_slug, bool(msg.get("is_locked"))); await db.commit(); changed = True
                 if "mute_all" in msg:
-                    latest = await svc_state.set_mute_all(room_slug, bool(msg.get("mute_all")))
-                    await db.commit()
-                    changed = True
+                    latest = await svc_state.set_mute_all(room_slug, bool(msg.get("mute_all"))); await db.commit(); changed = True
+
                 if changed and latest is not None:
-                    await HUB.broadcast(room_slug, {"type": "state.changed", **latest})
+                    ev = await svc_sync.append(room_slug=room_slug, type_="state.changed", payload=latest)
+                    await db.commit()
+                    await HUB.broadcast(room_slug, {"type": "state.changed", "seq": ev.id, **latest})
                 continue
 
             # --- self media (any participant) ---
             if mtype == "media.self":
                 mic_muted = msg.get("mic_muted", None)
                 cam_off = msg.get("cam_off", None)
-
-                # если пользователь админом заглушён — не позволяем включить микрофон
                 if admin_muted and mic_muted is False:
                     await _safe_json_send(websocket, {"type": "error", "reason": "admin_muted"})
                     continue
-
-                state = await svc_media.update_self(
-                    room_slug=room_slug, user_id=user_id, mic_muted=mic_muted, cam_off=cam_off
-                )
+                state = await svc_media.update_self(room_slug=room_slug, user_id=user_id, mic_muted=mic_muted, cam_off=cam_off)
                 await db.commit()
-                await HUB.broadcast(room_slug, {"type": "media.updated", **state})
+                ev = await svc_sync.append(room_slug=room_slug, type_="media.updated", payload=state)
+                await db.commit()
+                await HUB.broadcast(room_slug, {"type": "media.updated", "seq": ev.id, **state})
                 continue
 
             # --- hands ---
             if mtype == "hand.raise":
-                latest = await svc_state.set_hand(room_slug, user_id, True)
+                latest = await svc_state.set_hand(room_slug, user_id, True); await db.commit()
+                ev = await svc_sync.append(room_slug=room_slug, type_="hand.raised", payload={"user_id": user_id, **latest})
                 await db.commit()
-                await HUB.broadcast(room_slug, {"type": "hand.raised", "user_id": user_id, **latest})
+                await HUB.broadcast(room_slug, {"type": "hand.raised", "seq": ev.id, "user_id": user_id, **latest})
                 continue
 
             if mtype == "hand.lower":
-                latest = await svc_state.set_hand(room_slug, user_id, False)
+                latest = await svc_state.set_hand(room_slug, user_id, False); await db.commit()
+                ev = await svc_sync.append(room_slug=room_slug, type_="hand.lowered", payload={"user_id": user_id, **latest})
                 await db.commit()
-                await HUB.broadcast(room_slug, {"type": "hand.lowered", "user_id": user_id, **latest})
+                await HUB.broadcast(room_slug, {"type": "hand.lowered", "seq": ev.id, "user_id": user_id, **latest})
                 continue
 
             # --- graceful leave ---
             if mtype == "leave":
                 break
 
-            # неизвестный тип — тихо игнорируем
+            # неизвестный тип — игнор
 
     except (WebSocketDisconnect, SWebSocketDisconnect):
         pass
@@ -210,7 +226,9 @@ async def ws_room(
             await svc_part.leave(room_slug=room_slug, user_id=user_id)
             await db.commit()
             await HUB.leave(room_slug, user_id)
-            await HUB.broadcast(room_slug, {"type": "member.left", "user_id": user_id})
+            ev = await svc_sync.append(room_slug=room_slug, type_="member.left", payload={"user_id": user_id})
+            await db.commit()
+            await HUB.broadcast(room_slug, {"type": "member.left", "seq": ev.id, "user_id": user_id})
             await _safe_close(websocket, status.WS_1000_NORMAL_CLOSURE)
         finally:
             await db.close()

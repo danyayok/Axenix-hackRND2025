@@ -12,27 +12,28 @@ from app.api import state as state_api
 from app.api import auth as auth_api
 from app.api import rtc as rtc_api
 from app.api import moderation as moderation_api
+from app.api import sync as sync_api
 from app.api import ws as ws_api
 from app.db.base import Base
 from app.db.session import engine
 
-# создать каталоги для статики до монтирования
 Path("static/avatars").mkdir(parents=True, exist_ok=True)
 
 tags_meta = [
-    {"name": "rooms",        "description": "Создание, поиск и гостевой доступ в комнаты."},
-    {"name": "users",        "description": "Профили пользователей (MVP)."},
+    {"name": "rooms", "description": "Создание, поиск и гостевой доступ в комнаты."},
+    {"name": "users", "description": "Профили пользователей (MVP)."},
     {"name": "participants", "description": "Участники комнат: join/leave/heartbeat, список."},
-    {"name": "chat",         "description": "История сообщений и real-time через WS."},
-    {"name": "state",        "description": "Состояние комнаты: topic/lock/mute_all, поднятые руки."},
-    {"name": "auth",         "description": "Гостевые токены (JWT) для подключения к WS."},
-    {"name": "rtc",          "description": "ICE-конфигурация (STUN/TURN) для WebRTC."},
-    {"name": "moderation",   "description": "Роли (owner/admin/guest), kick и принудительный mute."},
+    {"name": "chat", "description": "История сообщений и real-time через WS."},
+    {"name": "state", "description": "Состояние комнаты: topic/lock/mute_all, поднятые руки."},
+    {"name": "auth", "description": "Гостевые токены (JWT) для подключения к WS."},
+    {"name": "rtc", "description": "ICE-конфигурация (STUN/TURN) для WebRTC."},
+    {"name": "moderation", "description": "Роли (owner/admin/guest), kick и принудительный mute."},
+    {"name": "sync", "description": "Синхронизация событий комнаты (sequence + догруз)."},
 ]
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.8.0",
+    version="0.9.0",
     default_response_class=ORJSONResponse,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -41,7 +42,6 @@ app = FastAPI(
 
 @app.on_event("startup")
 async def on_startup() -> None:
-    # Автосоздание таблиц (MVP). Если менялись модели — удалите axenix.db и перезапустите.
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -62,9 +62,9 @@ app.include_router(state_api.router,        prefix="/api/state",        tags=["s
 app.include_router(auth_api.router,         prefix="/api/auth",         tags=["auth"])
 app.include_router(rtc_api.router,          prefix="/api/rtc",          tags=["rtc"])
 app.include_router(moderation_api.router,   prefix="/api/moderation",   tags=["moderation"])
+app.include_router(sync_api.router,         prefix="/api/sync",         tags=["sync"])
 
 # WS
 app.include_router(ws_api.router)
 
-# Статика (аватарки доступны по /static/avatars/...)
 app.mount("/static", StaticFiles(directory="static"), name="static")
