@@ -61,11 +61,11 @@ class MembershipRepository:
         await self.session.flush(); await self.session.refresh(m)
         return m
 
-    # --- модерация ---
+    # --- модерация существующая ---
     async def set_role(self, *, room_id: int, user_id: int, role: str) -> Optional[Membership]:
         m = await self.get_active(room_id=room_id, user_id=user_id)
         if not m: return None
-        m.role = role  # owner|admin|guest
+        m.role = role
         await self.session.flush(); await self.session.refresh(m)
         return m
 
@@ -79,3 +79,20 @@ class MembershipRepository:
 
     async def kick(self, *, room_id: int, user_id: int) -> Optional[Membership]:
         return await self.mark_left(room_id=room_id, user_id=user_id)
+
+    # --- НОВОЕ ---
+    async def set_can_speak(self, *, room_id: int, user_id: int, can_speak: bool) -> Optional[Membership]:
+        m = await self.get_active(room_id=room_id, user_id=user_id)
+        if not m: return None
+        m.can_speak = can_speak
+        await self.session.flush(); await self.session.refresh(m)
+        return m
+
+    async def set_admin_video_off(self, *, room_id: int, user_id: int, video_off: bool) -> Optional[Membership]:
+        m = await self.get_active(room_id=room_id, user_id=user_id)
+        if not m: return None
+        m.admin_video_off = video_off
+        if video_off:
+            m.cam_off = True
+        await self.session.flush(); await self.session.refresh(m)
+        return m

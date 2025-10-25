@@ -17,3 +17,19 @@ class ForceMuteOut(BaseModel):
 
 class KickOut(BaseModel):
     user_id: int
+
+# NEW
+class SpeakIn(TargetUserIn):
+    can_speak: bool
+
+class SpeakOut(BaseModel):
+    user_id: int
+    can_speak: bool
+
+class ForceVideoIn(TargetUserIn):
+    video_off: bool
+
+class ForceVideoOut(BaseModel):
+    user_id: int
+    admin_video_off: bool
+    cam_off: bool

@@ -4,6 +4,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 class Membership(Base):
+    __tablename__ = "membership"
+
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     room_id: Mapped[int] = mapped_column(ForeignKey("room.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id", ondelete="CASCADE"), index=True)
@@ -15,8 +17,12 @@ class Membership(Base):
 
     # состояние участника
     hand_raised: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    mic_muted:  Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    cam_off:    Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    mic_muted:  Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # self mute
+    cam_off:    Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # self video off
 
-    # модерация
+    # модерация (существ.)
     admin_muted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # НОВОЕ: право выступления и принудительное выключение видео
+    can_speak: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)       # guest по умолчанию не спикер
+    admin_video_off: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False) # принудит. выключено видео
