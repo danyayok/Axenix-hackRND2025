@@ -1,0 +1,56 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Build Docker image
+      run: |
+        cd backend
+        docker build -t axenix-backend .
+    
+    - name: Run Docker container
+      run: |
+        docker run -d --name axenix-app -p 8000:8000 axenix-backend
+        # Ждем запуск приложения
+        sleep 10
+    
+    - name: Check if container is running
+      run: |
+        docker ps | grep axenix-app
+        # Проверяем, что приложение отвечает
+        curl -f http://localhost:8000/docs || (echo "App is not responding" && exit 1)
+    
+    - name: Set up Python for tests
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install test dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest requests
+    
+    - name: Run tests
+      run: |
+        cd backend
+        python tests.py
+    
+    - name: Stop container
+      if: always()
+      run: |
+        docker stop axenix-app || true
+        docker rm axenix-app || true
