@@ -1,5 +1,5 @@
-from typing import Sequence, Optional, Tuple
-from sqlalchemy import select
+from typing import Sequence, Optional
+from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.message import Message
 
@@ -14,17 +14,24 @@ class MessageRepository:
         await self.session.refresh(m)
         return m
 
-    async def list_room(
-        self, *, room_id: int, limit: int = 50, before_id: Optional[int] = None
-    ) -> Tuple[Sequence[Message], bool]:
-        q = select(Message).where(Message.room_id == room_id)
-        if before_id is not None:
-            q = q.where(Message.id < before_id)
-        q = q.order_by(Message.id.desc()).limit(limit + 1)
-        res = await self.session.execute(q)
+    async def list_history(self, *, room_id: int, limit: int = 50, before_id: Optional[int] = None) -> Sequence[Message]:
+        stmt = select(Message).where(Message.room_id == room_id)
+        if before_id:
+            stmt = stmt.where(Message.id < before_id)
+        stmt = stmt.order_by(desc(Message.id)).limit(max(1, min(limit, 200)))
+        res = await self.session.execute(stmt)
         items = list(res.scalars().all())
-        has_more = len(items) > limit
-        if has_more:
-            items = items[:limit]
-        items.reverse()  # в хронологическом порядке старые→новые
-        return items, has_more
+        items.reverse()  # отдаём по возрастанию ID
+        return items
+
+    async def get(self, *, message_id: int) -> Optional[Message]:
+        res = await self.session.execute(select(Message).where(Message.id == message_id))
+        return res.scalar_one_or_none()
+
+    async def delete(self, *, message_id: int) -> bool:
+        m = await self.get(message_id=message_id)
+        if not m:
+            return False
+        await self.session.delete(m)
+        await self.session.flush()
+        return True
