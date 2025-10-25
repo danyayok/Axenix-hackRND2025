@@ -91,30 +91,27 @@ async def ws_room(
             role = membership.role if membership else "guest"
             mute_all = bool(room.mute_all) if room else False
             admin_muted = bool(membership.admin_muted) if membership else False
-            admin_video_off = bool(membership.admin_video_off) if membership else False   # NEW
-            can_speak = bool(membership.can_speak) if membership else False               # NEW
+            admin_video_off = bool(getattr(membership, "admin_video_off", False)) if membership else False
+            can_speak = bool(getattr(membership, "can_speak", False)) if membership else False
             is_privileged = role in ("owner", "admin")
 
-            # Ограничения:
-            # - mute_all: говорить/сигналить могут только привилегированные или те, кому дали право выступать
-            # - admin_muted: этот участник не может отправлять сигналинг, чат и включать микрофон
-            if admin_muted:
-                if mtype in ("offer", "answer", "ice", "chat.message", "chat.message.enc"):
-                    await _safe_json_send(websocket, {"type": "error", "reason": "muted_by_admin"})
-                    continue
+            # ограничения
+            if admin_muted and mtype in ("offer", "answer", "ice", "chat.message", "chat.message.enc"):
+                await _safe_json_send(websocket, {"type": "error", "reason": "muted_by_admin"})
+                continue
             if mute_all and not (is_privileged or can_speak):
                 if mtype in ("offer", "answer", "ice", "chat.message", "chat.message.enc"):
                     await _safe_json_send(websocket, {"type": "error", "reason": "mute_all"})
                     continue
 
-            # SYNC subscribe
+            # ---- SYNC subscribe ----
             if mtype == "sync.sub":
                 after_seq = int(msg.get("after_seq", 0))
                 items = await svc_sync.list_after(room_slug=room_slug, after_seq=after_seq, limit=int(msg.get("limit", 200)))
                 await _safe_json_send(websocket, {"type": "sync.batch", "items": items})
                 continue
 
-            # signaling
+            # ---- WebRTC signaling ----
             if mtype in ("offer", "answer", "ice"):
                 to_uid = msg.get("to")
                 if not isinstance(to_uid, int):
@@ -125,7 +122,7 @@ async def ws_room(
                 await HUB.send_to(room_slug, to_uid, payload)
                 continue
 
-            # chat (plaintext)
+            # ---- chat (plaintext) ----
             if mtype == "chat.message":
                 text = msg.get("text", "")
                 try:
@@ -144,7 +141,7 @@ async def ws_room(
                                                 "text": saved.text, "created_at": saved.created_at.isoformat() + "Z"})
                 continue
 
-            # chat (encrypted)
+            # ---- chat (encrypted) ----
             if mtype == "chat.message.enc":
                 b64 = msg.get("ciphertext_b64", "")
                 algo = msg.get("algo", "AES-256-GCM")
@@ -166,13 +163,13 @@ async def ws_room(
                                                 "created_at": saved.created_at.isoformat() + "Z"})
                 continue
 
-            # typing
+            # ---- typing ----
             if mtype == "chat.typing":
                 is_typing = bool(msg.get("is_typing", True))
                 await HUB.broadcast(room_slug, {"type": "chat.typing", "user_id": user_id, "is_typing": is_typing}, exclude={user_id})
                 continue
 
-            # state.set (owner/admin)
+            # ---- state.set (owner/admin) ----
             if mtype == "state.set":
                 if not is_privileged:
                     await _safe_json_send(websocket, {"type": "error", "reason": "forbidden"})
@@ -191,18 +188,16 @@ async def ws_room(
                     await HUB.broadcast(room_slug, {"type": "state.changed", "seq": ev.id, **latest})
                 continue
 
-            # self media (cam/mic)
+            # ---- self media ----
             if mtype == "media.self":
                 mic_muted = msg.get("mic_muted", None)
                 cam_off   = msg.get("cam_off", None)
-
                 if admin_muted and mic_muted is False:
                     await _safe_json_send(websocket, {"type": "error", "reason": "admin_muted"})
                     continue
-                if admin_video_off and cam_off is False:  # NEW: запрет включать камеру
+                if admin_video_off and cam_off is False:
                     await _safe_json_send(websocket, {"type": "error", "reason": "admin_video_off"})
                     continue
-
                 state = await svc_media.update_self(room_slug=room_slug, user_id=user_id, mic_muted=mic_muted, cam_off=cam_off)
                 await db.commit()
                 ev = await svc_sync.append(room_slug=room_slug, type_="media.updated", payload=state)
@@ -210,7 +205,7 @@ async def ws_room(
                 await HUB.broadcast(room_slug, {"type": "media.updated", "seq": ev.id, **state})
                 continue
 
-            # hands
+            # ---- руки ----
             if mtype == "hand.raise":
                 latest = await svc_state.set_hand(room_slug, user_id, True); await db.commit()
                 ev = await svc_sync.append(room_slug=room_slug, type_="hand.raised", payload={"user_id": user_id, **latest})
@@ -225,6 +220,28 @@ async def ws_room(
                 await HUB.broadcast(room_slug, {"type": "hand.lowered", "seq": ev.id, "user_id": user_id, **latest})
                 continue
 
+            # ==== NEW: запись встречи (owner/admin) ====
+            if mtype == "record.start":
+                if not is_privileged:
+                    await _safe_json_send(websocket, {"type": "error", "reason": "forbidden"})
+                    continue
+                latest = await svc_state.set_recording(room_slug, True); await db.commit()
+                ev = await svc_sync.append(room_slug=room_slug, type_="record.started", payload={"by_user": user_id, **latest})
+                await db.commit()
+                await HUB.broadcast(room_slug, {"type": "record.started", "seq": ev.id, "by_user": user_id, **latest})
+                continue
+
+            if mtype == "record.stop":
+                if not is_privileged:
+                    await _safe_json_send(websocket, {"type": "error", "reason": "forbidden"})
+                    continue
+                latest = await svc_state.set_recording(room_slug, False); await db.commit()
+                ev = await svc_sync.append(room_slug=room_slug, type_="record.stopped", payload={"by_user": user_id, **latest})
+                await db.commit()
+                await HUB.broadcast(room_slug, {"type": "record.stopped", "seq": ev.id, "by_user": user_id, **latest})
+                continue
+
+            # graceful leave
             if mtype == "leave":
                 break
 
