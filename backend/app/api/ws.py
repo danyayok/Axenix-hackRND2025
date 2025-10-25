@@ -91,11 +91,20 @@ async def ws_room(
             role = membership.role if membership else "guest"
             mute_all = bool(room.mute_all) if room else False
             admin_muted = bool(membership.admin_muted) if membership else False
+            admin_video_off = bool(membership.admin_video_off) if membership else False   # NEW
+            can_speak = bool(membership.can_speak) if membership else False               # NEW
             is_privileged = role in ("owner", "admin")
 
-            if (mute_all and not is_privileged) or admin_muted:
+            # Ограничения:
+            # - mute_all: говорить/сигналить могут только привилегированные или те, кому дали право выступать
+            # - admin_muted: этот участник не может отправлять сигналинг, чат и включать микрофон
+            if admin_muted:
                 if mtype in ("offer", "answer", "ice", "chat.message", "chat.message.enc"):
                     await _safe_json_send(websocket, {"type": "error", "reason": "muted_by_admin"})
+                    continue
+            if mute_all and not (is_privileged or can_speak):
+                if mtype in ("offer", "answer", "ice", "chat.message", "chat.message.enc"):
+                    await _safe_json_send(websocket, {"type": "error", "reason": "mute_all"})
                     continue
 
             # SYNC subscribe
@@ -125,16 +134,9 @@ async def ws_room(
                 except ValueError as e:
                     await _safe_json_send(websocket, {"type": "error", "reason": str(e)})
                     continue
-
                 ev = await svc_sync.append(
                     room_slug=room_slug, type_="chat.message",
-                    payload={
-                        "id": saved.id,
-                        "room_slug": room_slug,
-                        "user_id": user_id,
-                        "text": saved.text,
-                        "created_at": saved.created_at.isoformat() + "Z",
-                    }
+                    payload={"id": saved.id, "room_slug": room_slug, "user_id": user_id, "text": saved.text, "created_at": saved.created_at.isoformat() + "Z"}
                 )
                 await db.commit()
                 await HUB.broadcast(room_slug, {"type": "chat.message", "seq": ev.id, "id": saved.id,
@@ -152,17 +154,10 @@ async def ws_room(
                 except ValueError as e:
                     await _safe_json_send(websocket, {"type": "error", "reason": str(e)})
                     continue
-
                 ev = await svc_sync.append(
                     room_slug=room_slug, type_="chat.message.enc",
-                    payload={
-                        "id": saved.id,
-                        "room_slug": room_slug,
-                        "user_id": user_id,
-                        "algo": saved.enc_algo,
-                        "ciphertext_b64": saved.text,
-                        "created_at": saved.created_at.isoformat() + "Z",
-                    }
+                    payload={"id": saved.id, "room_slug": room_slug, "user_id": user_id,
+                             "algo": saved.enc_algo, "ciphertext_b64": saved.text, "created_at": saved.created_at.isoformat() + "Z"}
                 )
                 await db.commit()
                 await HUB.broadcast(room_slug, {"type": "chat.message.enc", "seq": ev.id,
@@ -196,13 +191,18 @@ async def ws_room(
                     await HUB.broadcast(room_slug, {"type": "state.changed", "seq": ev.id, **latest})
                 continue
 
-            # self media
+            # self media (cam/mic)
             if mtype == "media.self":
                 mic_muted = msg.get("mic_muted", None)
-                cam_off = msg.get("cam_off", None)
+                cam_off   = msg.get("cam_off", None)
+
                 if admin_muted and mic_muted is False:
                     await _safe_json_send(websocket, {"type": "error", "reason": "admin_muted"})
                     continue
+                if admin_video_off and cam_off is False:  # NEW: запрет включать камеру
+                    await _safe_json_send(websocket, {"type": "error", "reason": "admin_video_off"})
+                    continue
+
                 state = await svc_media.update_self(room_slug=room_slug, user_id=user_id, mic_muted=mic_muted, cam_off=cam_off)
                 await db.commit()
                 ev = await svc_sync.append(room_slug=room_slug, type_="media.updated", payload=state)
