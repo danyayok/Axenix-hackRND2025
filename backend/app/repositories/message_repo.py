@@ -7,8 +7,10 @@ class MessageRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create(self, *, room_id: int, user_id: int, text: str) -> Message:
-        m = Message(room_id=room_id, user_id=user_id, text=text)
+    async def create(
+        self, *, room_id: int, user_id: int, text: str, is_encrypted: bool = False, enc_algo: str | None = None
+    ) -> Message:
+        m = Message(room_id=room_id, user_id=user_id, text=text, is_encrypted=is_encrypted, enc_algo=enc_algo)
         self.session.add(m)
         await self.session.flush()
         await self.session.refresh(m)
@@ -21,7 +23,7 @@ class MessageRepository:
         stmt = stmt.order_by(desc(Message.id)).limit(max(1, min(limit, 200)))
         res = await self.session.execute(stmt)
         items = list(res.scalars().all())
-        items.reverse()  # отдаём по возрастанию ID
+        items.reverse()
         return items
 
     async def get(self, *, message_id: int) -> Optional[Message]:
