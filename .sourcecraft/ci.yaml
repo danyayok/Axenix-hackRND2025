@@ -40,6 +40,10 @@ tasks:
           - docker push $IMAGE_NAME:latest
   
   - name: deploy-task
+    env:
+      IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/axenix
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     cubes:
       - name: setup-ssh
         env:
@@ -56,7 +60,6 @@ tasks:
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
-          IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/axenix
         script:
           - echo "Deploying via SSH..."
-          - sshpass -p $SSH_PASSWORD ssh $SSH_USER@$SSH_HOST "docker pull $IMAGE_NAME:latest && docker stop axenix || true && docker rm axenix || true && docker run -d --name axenix -p 8080:8080 $IMAGE_NAME:latest"
+          - sshpass -p $SSH_PASSWORD ssh $SSH_USER@$SSH_HOST "echo $DOCKER_PASSWORD | docker login --username $DOCKER_USERNAME --password-stdin && docker pull $IMAGE_NAME:latest && docker stop axenix || true && docker rm axenix || true && docker run -d --name axenix -p 8080:8080 $IMAGE_NAME:latest"
