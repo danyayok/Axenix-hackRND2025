@@ -14,10 +14,10 @@ workflows:
 
 tasks:
   - name: build-and-push-task
-    env:
-      IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/axenix
     cubes:
       - name: docker-build
+        env:
+          IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/axenix
         script:
           - echo "Building Docker image..."
           - docker build -t $IMAGE_NAME:$CI_COMMIT_SHORT_SHA .
@@ -43,11 +43,12 @@ tasks:
     cubes:
       - name: setup-ssh
         env:
-          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
         script:
           - echo "Setting up SSH access..."
+          - apt-get update && apt-get install -y sshpass
           - mkdir -p ~/.ssh
-          - ssh-keyscan ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+          - ssh-keyscan $SSH_HOST >> ~/.ssh/known_hosts
           - chmod 700 ~/.ssh
       
       - name: deploy-via-ssh
