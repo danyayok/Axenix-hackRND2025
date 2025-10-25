@@ -20,6 +20,7 @@ from app.core.security import get_user_id_from_token
 
 router = APIRouter()
 
+
 @router.websocket("/ws/rooms/{room_slug}")
 async def ws_room(
     websocket: WebSocket,
@@ -29,6 +30,7 @@ async def ws_room(
 ):
     await websocket.accept()
 
+    # --- auth ---
     try:
         user_id = get_user_id_from_token(token)
     except Exception:
@@ -36,6 +38,7 @@ async def ws_room(
         await _safe_close(websocket, status.WS_1008_POLICY_VIOLATION)
         return
 
+    # одна async-сессия на жизнь сокета
     db: AsyncSession = SessionLocal()
     rrepo = RoomRepository(db)
     mrepo = MembershipRepository(db)
@@ -45,7 +48,7 @@ async def ws_room(
     svc_media = MediaService(rrepo, mrepo)
 
     try:
-        # JOIN
+        # ---- JOIN ----
         try:
             await svc_part.join(room_slug=room_slug, user_id=user_id, invite_key=invite_key)
             await db.commit()
@@ -56,16 +59,23 @@ async def ws_room(
 
         await HUB.join(room_slug, user_id, websocket)
         await _safe_json_send(websocket, {"type": "joined", "room_slug": room_slug, "user_id": user_id})
+
+        # снапшот состояния подключившемуся
         snap = await svc_state.snapshot(room_slug)
         await _safe_json_send(websocket, {"type": "state.snapshot", **snap})
+
+        # известим остальных
         await HUB.broadcast(room_slug, {"type": "member.joined", "user_id": user_id}, exclude={user_id})
 
+        # ---- MAIN LOOP ----
         while True:
             raw = await websocket.receive_text()
 
+            # liveness
             await svc_part.heartbeat(room_slug=room_slug, user_id=user_id)
             await db.commit()
 
+            # parse
             try:
                 msg = json.loads(raw)
                 if not isinstance(msg, dict) or "type" not in msg:
@@ -76,18 +86,23 @@ async def ws_room(
 
             mtype = msg.get("type")
 
+            # вычислим роль, mute_all и admin_muted
             room = await rrepo.get_by_slug(room_slug)
             membership = await mrepo.get_active(room_id=room.id, user_id=user_id) if room else None
             role = membership.role if membership else "guest"
             mute_all = bool(room.mute_all) if room else False
-            is_privileged = role in ("owner", "admin")  # если у тебя уже "admin" вместо host — поменяй здесь
+            admin_muted = bool(membership.admin_muted) if membership else False
+            is_privileged = role in ("owner", "admin")
 
-            # блокируем signaling и чат у гостей при mute_all
-            if mute_all and not is_privileged and mtype in ("offer", "answer", "ice", "chat.message"):
-                await _safe_json_send(websocket, {"type": "error", "reason": "muted_by_admin"})
-                continue
+            # блокировки:
+            #  - mute_all ограничивает гостей
+            #  - admin_muted ограничивает конкретного участника
+            if (mute_all and not is_privileged) or admin_muted:
+                if mtype in ("offer", "answer", "ice", "chat.message"):
+                    await _safe_json_send(websocket, {"type": "error", "reason": "muted_by_admin"})
+                    continue
 
-            # --- signaling ---
+            # --- WebRTC signaling (to-one) ---
             if mtype in ("offer", "answer", "ice"):
                 to_uid = msg.get("to")
                 if not isinstance(to_uid, int):
@@ -98,7 +113,7 @@ async def ws_room(
                 await HUB.send_to(room_slug, to_uid, payload)
                 continue
 
-            # --- чат ---
+            # --- chat send (persist + broadcast) ---
             if mtype == "chat.message":
                 text = msg.get("text", "")
                 try:
@@ -107,6 +122,7 @@ async def ws_room(
                 except ValueError as e:
                     await _safe_json_send(websocket, {"type": "error", "reason": str(e)})
                     continue
+
                 payload = {
                     "type": "chat.message",
                     "id": saved.id,
@@ -118,7 +134,17 @@ async def ws_room(
                 await HUB.broadcast(room_slug, payload)
                 continue
 
-            # --- room state (owner/host только) ---
+            # --- typing indicator (broadcast to others) ---
+            if mtype == "chat.typing":
+                is_typing = bool(msg.get("is_typing", True))
+                await HUB.broadcast(
+                    room_slug,
+                    {"type": "chat.typing", "user_id": user_id, "is_typing": is_typing},
+                    exclude={user_id},
+                )
+                continue
+
+            # --- room state (owner/admin only) ---
             if mtype == "state.set":
                 if not is_privileged:
                     await _safe_json_send(websocket, {"type": "error", "reason": "forbidden"})
@@ -127,37 +153,55 @@ async def ws_room(
                 latest = None
                 if "topic" in msg:
                     latest = await svc_state.set_topic(room_slug, msg.get("topic"))
-                    await db.commit(); changed = True
+                    await db.commit()
+                    changed = True
                 if "is_locked" in msg:
                     latest = await svc_state.set_locked(room_slug, bool(msg.get("is_locked")))
-                    await db.commit(); changed = True
+                    await db.commit()
+                    changed = True
                 if "mute_all" in msg:
                     latest = await svc_state.set_mute_all(room_slug, bool(msg.get("mute_all")))
-                    await db.commit(); changed = True
+                    await db.commit()
+                    changed = True
                 if changed and latest is not None:
                     await HUB.broadcast(room_slug, {"type": "state.changed", **latest})
                 continue
 
-            # --- self media ---
+            # --- self media (any participant) ---
             if mtype == "media.self":
                 mic_muted = msg.get("mic_muted", None)
-                cam_off   = msg.get("cam_off", None)
-                state = await svc_media.update_self(room_slug=room_slug, user_id=user_id,
-                                                    mic_muted=mic_muted, cam_off=cam_off)
+                cam_off = msg.get("cam_off", None)
+
+                # если пользователь админом заглушён — не позволяем включить микрофон
+                if admin_muted and mic_muted is False:
+                    await _safe_json_send(websocket, {"type": "error", "reason": "admin_muted"})
+                    continue
+
+                state = await svc_media.update_self(
+                    room_slug=room_slug, user_id=user_id, mic_muted=mic_muted, cam_off=cam_off
+                )
                 await db.commit()
                 await HUB.broadcast(room_slug, {"type": "media.updated", **state})
                 continue
 
-            # --- руки ---
+            # --- hands ---
             if mtype == "hand.raise":
-                latest = await svc_state.set_hand(room_slug, user_id, True); await db.commit()
-                await HUB.broadcast(room_slug, {"type": "hand.raised", "user_id": user_id, **latest}); continue
-            if mtype == "hand.lower":
-                latest = await svc_state.set_hand(room_slug, user_id, False); await db.commit()
-                await HUB.broadcast(room_slug, {"type": "hand.lowered", "user_id": user_id, **latest}); continue
+                latest = await svc_state.set_hand(room_slug, user_id, True)
+                await db.commit()
+                await HUB.broadcast(room_slug, {"type": "hand.raised", "user_id": user_id, **latest})
+                continue
 
+            if mtype == "hand.lower":
+                latest = await svc_state.set_hand(room_slug, user_id, False)
+                await db.commit()
+                await HUB.broadcast(room_slug, {"type": "hand.lowered", "user_id": user_id, **latest})
+                continue
+
+            # --- graceful leave ---
             if mtype == "leave":
                 break
+
+            # неизвестный тип — тихо игнорируем
 
     except (WebSocketDisconnect, SWebSocketDisconnect):
         pass
@@ -171,9 +215,11 @@ async def ws_room(
         finally:
             await db.close()
 
+
 async def _safe_json_send(ws: WebSocket, data: dict) -> None:
     if ws.client_state == WebSocketState.CONNECTED:
         await ws.send_json(data)
+
 
 async def _safe_close(ws: WebSocket, code: int) -> None:
     if ws.client_state == WebSocketState.CONNECTED:

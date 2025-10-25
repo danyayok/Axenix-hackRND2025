@@ -1,17 +1,17 @@
-import re
-from typing import Optional, Tuple, Sequence
+from typing import Sequence, Optional
+from time import time
+from collections import defaultdict
+
 from app.repositories.message_repo import MessageRepository
 from app.repositories.room_repo import RoomRepository
 from app.repositories.user_repo import UserRepository
 from app.models.message import Message
+from app.utils.text import sanitize_message, has_bad_words
 
-_MAX_LEN = 2000
-# очень базовая фильтрация: уберём управляющие, нормализуем пробелы
-_ctrl = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]")
-_ws = re.compile(r"\s+")
-
-# (опционально) простой стоп-лист для MVP; расширим потом
-_BAD = {"fuck", "shit"}  # пример; можно убрать совсем, если не нужно
+# in-memory rate limit: 5 сообщений / 10с на (room, user)
+_BUCKET: dict[tuple[int,int], list[float]] = defaultdict(list)
+_LIMIT = 5
+_WINDOW = 10.0
 
 class ChatService:
     def __init__(self, m_repo: MessageRepository, r_repo: RoomRepository, u_repo: UserRepository):
@@ -19,38 +19,42 @@ class ChatService:
         self.r_repo = r_repo
         self.u_repo = u_repo
 
-    def _sanitize(self, text: str) -> str:
-        text = _ctrl.sub("", text).strip()
-        text = _ws.sub(" ", text)
-        return text[:_MAX_LEN]
-
-    def _validate(self, text: str) -> Optional[str]:
-        if not text:
-            return "empty"
-        low = text.lower()
-        if any(bad in low for bad in _BAD):
-            return "forbidden"
-        return None
-
     async def send(self, *, room_slug: str, user_id: int, text: str) -> Message:
         room = await self.r_repo.get_by_slug(room_slug)
         if not room:
             raise ValueError("room_not_found")
+
         user = await self.u_repo.get(user_id)
         if not user:
             raise ValueError("user_not_found")
 
-        cleaned = self._sanitize(text)
-        err = self._validate(cleaned)
-        if err:
-            raise ValueError(f"invalid_{err}")
+        msg = sanitize_message(text)
+        if not msg:
+            raise ValueError("empty_message")
+        if has_bad_words(msg):
+            raise ValueError("forbidden_words")
 
-        return await self.m_repo.create(room_id=room.id, user_id=user_id, text=cleaned)
+        # rate-limit
+        key = (room.id, user_id)
+        now = time()
+        bucket = _BUCKET[key]
+        # drop old
+        while bucket and now - bucket[0] > _WINDOW:
+            bucket.pop(0)
+        if len(bucket) >= _LIMIT:
+            raise ValueError("rate_limited")
+        bucket.append(now)
 
-    async def history(
-        self, *, room_slug: str, limit: int = 50, before_id: Optional[int] = None
-    ) -> Tuple[Sequence[Message], bool]:
+        return await self.m_repo.create(room_id=room.id, user_id=user_id, text=msg)
+
+    async def history(self, *, room_slug: str, limit: int = 50, before_id: Optional[int] = None) -> Sequence[Message]:
         room = await self.r_repo.get_by_slug(room_slug)
         if not room:
             raise ValueError("room_not_found")
-        return await self.m_repo.list_room(room_id=room.id, limit=limit, before_id=before_id)
+        return await self.m_repo.list_history(room_id=room.id, limit=limit, before_id=before_id)
+
+    async def delete(self, *, room_slug: str, message_id: int) -> bool:
+        room = await self.r_repo.get_by_slug(room_slug)
+        if not room:
+            raise ValueError("room_not_found")
+        return await self.m_repo.delete(message_id=message_id)
