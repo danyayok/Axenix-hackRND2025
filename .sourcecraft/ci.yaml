@@ -1,49 +1,62 @@
-# CI/CD конфигурация для сборки Docker-образа и деплоя через SSH
+# CI/CD конфигурация для запуска тестов, сборки Docker-образа и деплоя через SSH
 
 on:
   push:
-    - workflows: [build-and-deploy]
+    - workflows: [test-build-deploy]
       filter:
         branches: ["main"]
 
 workflows:
-  build-and-deploy:
+  test-build-deploy:
     tasks:
+      - test-task
       - build-and-push-task
       - deploy-task
 
 tasks:
+  - name: test-task
+    cubes:
+      - name: run-tests
+        image: python:3.11-slim
+        script:
+          - echo "Running tests..."
+          - apt-get update && apt-get install -y curl
+          - pip install --no-cache-dir --upgrade pip
+          - cd backend
+          - pip install --no-cache-dir -r requirements.txt
+          - pip install pytest requests
+          - python -m pytest tests.py -v
+  
   - name: build-and-push-task
+    env:
+      IMAGE_NAME: pkg.sourcecraft.tech/cr/kyss/<registry_id>/axenix
     cubes:
       - name: docker-build
-        env:
-          IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/axenix
         script:
           - echo "Building Docker image..."
+          - cd backend
           - docker build -t $IMAGE_NAME:$CI_COMMIT_SHORT_SHA .
           - docker tag $IMAGE_NAME:$CI_COMMIT_SHORT_SHA $IMAGE_NAME:latest
       
       - name: docker-login
         env:
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+          REGISTRY_USERNAME: iam
+          REGISTRY_PASSWORD: ${{ secrets.SOURCECRAFT_PAT }}
         script:
-          - echo "Logging in to Docker Hub..."
-          - echo $DOCKER_PASSWORD | docker login --username $DOCKER_USERNAME --password-stdin
+          - echo "Logging in to SourceCraft registry..."
+          - echo $REGISTRY_PASSWORD | docker login --username $REGISTRY_USERNAME --password-stdin pkg.sourcecraft.tech
       
       - name: docker-push
         env:
-          IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/axenix
+          IMAGE_NAME: pkg.sourcecraft.tech/cr/kyss/<registry_id>/axenix
         script:
-          - echo "Pushing Docker image to registry..."
+          - echo "Pushing Docker image to SourceCraft registry..."
           - docker push $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
           - docker push $IMAGE_NAME:latest
   
   - name: deploy-task
     env:
-      IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/axenix
-      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+      IMAGE_NAME: pkg.sourcecraft.tech/cr/kyss/<registry_id>/axenix
     cubes:
       - name: setup-ssh
         env:
@@ -62,4 +75,4 @@ tasks:
           SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
         script:
           - echo "Deploying via SSH..."
-          - sshpass -p $SSH_PASSWORD ssh $SSH_USER@$SSH_HOST "echo $DOCKER_PASSWORD | docker login --username $DOCKER_USERNAME --password-stdin && docker pull $IMAGE_NAME:latest && docker stop axenix || true && docker rm axenix || true && docker run -d --name axenix -p 8080:8080 $IMAGE_NAME:latest"
+          - sshpass -p $SSH_PASSWORD ssh $SSH_USER@$SSH_HOST "docker login --username iam --password ${{ secrets.SOURCECRAFT_PAT }} pkg.sourcecraft.tech && docker pull $IMAGE_NAME:latest && docker stop axenix || true && docker rm axenix || true && docker run -d --name axenix -p 8080:8000 $IMAGE_NAME:latest"
