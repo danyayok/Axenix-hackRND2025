@@ -1,78 +1,60 @@
-# CI/CD конфигурация для запуска тестов, сборки Docker-образа и деплоя через SSH
-
 on:
   push:
-    - workflows: [test-build-deploy]
+    - workflows: [build-and-test-workflow]
       filter:
         branches: ["main"]
+  pull_request:
+    - workflows: [build-and-test-workflow]
+      filter:
+        target_branches: ["main"]
 
 workflows:
-  test-build-deploy:
+  build-and-test-workflow:
     tasks:
-      - test-task
-      - build-and-push-task
-      - deploy-task
+      - build-and-test-task
 
 tasks:
-  - name: test-task
+  - name: build-and-test-task
     cubes:
-      - name: run-tests
-        image: python:3.11-slim
+      # Сборка Docker образа
+      - name: build-docker-image
         script:
-          - echo "Running tests..."
-          - apt-get update && apt-get install -y curl
-          - pip install --no-cache-dir --upgrade pip
           - cd backend
-          - pip install --no-cache-dir -r requirements.txt
+          - docker build -t axenix-backend .
+      
+      # Запуск Docker контейнера
+      - name: run-docker-container
+        script:
+          - docker run -d --name axenix-app -p 8000:8000 axenix-backend
+          # Ждем запуск приложения
+          - sleep 10
+      
+      # Проверка работоспособности контейнера
+      - name: check-container-running
+        script:
+          - docker ps | grep axenix-app
+          # Проверяем, что приложение отвечает
+          - curl -f http://localhost:8000/docs || (echo "App is not responding" && exit 1)
+      
+      # Установка Python для тестов
+      - name: setup-python
+        image: docker.io/library/python:3.11
+        script:
+          - python -m pip install --upgrade pip
+      
+      # Установка зависимостей для тестов
+      - name: install-test-dependencies
+        script:
           - pip install pytest requests
-          - python -m pytest tests.py -v
-  
-  - name: build-and-push-task
-    env:
-      IMAGE_NAME: pkg.sourcecraft.tech/cr/kyss/<registry_id>/axenix
-    cubes:
-      - name: docker-build
+      
+      # Запуск тестов
+      - name: run-tests
         script:
-          - echo "Building Docker image..."
           - cd backend
-          - docker build -t $IMAGE_NAME:$CI_COMMIT_SHORT_SHA .
-          - docker tag $IMAGE_NAME:$CI_COMMIT_SHORT_SHA $IMAGE_NAME:latest
+          - python tests.py
       
-      - name: docker-login
-        env:
-          REGISTRY_USERNAME: iam
-          REGISTRY_PASSWORD: ${{ secrets.SOURCECRAFT_PAT }}
+      # Остановка контейнера (всегда выполняется)
+      - name: stop-container
         script:
-          - echo "Logging in to SourceCraft registry..."
-          - echo $REGISTRY_PASSWORD | docker login --username $REGISTRY_USERNAME --password-stdin pkg.sourcecraft.tech
-      
-      - name: docker-push
-        env:
-          IMAGE_NAME: pkg.sourcecraft.tech/cr/kyss/<registry_id>/axenix
-        script:
-          - echo "Pushing Docker image to SourceCraft registry..."
-          - docker push $IMAGE_NAME:$CI_COMMIT_SHORT_SHA
-          - docker push $IMAGE_NAME:latest
-  
-  - name: deploy-task
-    env:
-      IMAGE_NAME: pkg.sourcecraft.tech/cr/kyss/<registry_id>/axenix
-    cubes:
-      - name: setup-ssh
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-        script:
-          - echo "Setting up SSH access..."
-          - apt-get update && apt-get install -y sshpass
-          - mkdir -p ~/.ssh
-          - ssh-keyscan $SSH_HOST >> ~/.ssh/known_hosts
-          - chmod 700 ~/.ssh
-      
-      - name: deploy-via-ssh
-        env:
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
-        script:
-          - echo "Deploying via SSH..."
-          - sshpass -p $SSH_PASSWORD ssh $SSH_USER@$SSH_HOST "docker login --username iam --password ${{ secrets.SOURCECRAFT_PAT }} pkg.sourcecraft.tech && docker pull $IMAGE_NAME:latest && docker stop axenix || true && docker rm axenix || true && docker run -d --name axenix -p 8080:8000 $IMAGE_NAME:latest"
+          - docker stop axenix-app || true
+          - docker rm axenix-app || true
