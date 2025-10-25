@@ -22,7 +22,6 @@ from app.core.security import get_user_id_from_token
 
 router = APIRouter()
 
-
 @router.websocket("/ws/rooms/{room_slug}")
 async def ws_room(
     websocket: WebSocket,
@@ -32,7 +31,6 @@ async def ws_room(
 ):
     await websocket.accept()
 
-    # --- auth ---
     try:
         user_id = get_user_id_from_token(token)
     except Exception:
@@ -40,7 +38,6 @@ async def ws_room(
         await _safe_close(websocket, status.WS_1008_POLICY_VIOLATION)
         return
 
-    # одна async-сессия на жизнь сокета
     db: AsyncSession = SessionLocal()
     rrepo = RoomRepository(db)
     mrepo = MembershipRepository(db)
@@ -53,7 +50,7 @@ async def ws_room(
     svc_sync = SyncService(rrepo, erepo)
 
     try:
-        # ---- JOIN ----
+        # JOIN
         try:
             await svc_part.join(room_slug=room_slug, user_id=user_id, invite_key=invite_key)
             await db.commit()
@@ -64,27 +61,21 @@ async def ws_room(
 
         await HUB.join(room_slug, user_id, websocket)
         await _safe_json_send(websocket, {"type": "joined", "room_slug": room_slug, "user_id": user_id})
-
-        # снапшот состояния + sync.info
         snap = await svc_state.snapshot(room_slug)
         await _safe_json_send(websocket, {"type": "state.snapshot", **snap})
         next_seq = await svc_sync.next_seq()
         await _safe_json_send(websocket, {"type": "sync.info", "next_seq": next_seq})
 
-        # известим остальных (и залогируем событие)
         await HUB.broadcast(room_slug, {"type": "member.joined", "user_id": user_id}, exclude={user_id})
         ev = await svc_sync.append(room_slug=room_slug, type_="member.joined", payload={"user_id": user_id})
         await db.commit()
 
-        # ---- MAIN LOOP ----
         while True:
             raw = await websocket.receive_text()
 
-            # liveness
             await svc_part.heartbeat(room_slug=room_slug, user_id=user_id)
             await db.commit()
 
-            # parse
             try:
                 msg = json.loads(raw)
                 if not isinstance(msg, dict) or "type" not in msg:
@@ -95,7 +86,6 @@ async def ws_room(
 
             mtype = msg.get("type")
 
-            # роль/ mute flags
             room = await rrepo.get_by_slug(room_slug)
             membership = await mrepo.get_active(room_id=room.id, user_id=user_id) if room else None
             role = membership.role if membership else "guest"
@@ -103,20 +93,19 @@ async def ws_room(
             admin_muted = bool(membership.admin_muted) if membership else False
             is_privileged = role in ("owner", "admin")
 
-            # ограничения
             if (mute_all and not is_privileged) or admin_muted:
-                if mtype in ("offer", "answer", "ice", "chat.message"):
+                if mtype in ("offer", "answer", "ice", "chat.message", "chat.message.enc"):
                     await _safe_json_send(websocket, {"type": "error", "reason": "muted_by_admin"})
                     continue
 
-            # --- SYNC subscribe (догруз событий) ---
+            # SYNC subscribe
             if mtype == "sync.sub":
                 after_seq = int(msg.get("after_seq", 0))
                 items = await svc_sync.list_after(room_slug=room_slug, after_seq=after_seq, limit=int(msg.get("limit", 200)))
                 await _safe_json_send(websocket, {"type": "sync.batch", "items": items})
                 continue
 
-            # --- WebRTC signaling ---
+            # signaling
             if mtype in ("offer", "answer", "ice"):
                 to_uid = msg.get("to")
                 if not isinstance(to_uid, int):
@@ -127,7 +116,7 @@ async def ws_room(
                 await HUB.send_to(room_slug, to_uid, payload)
                 continue
 
-            # --- chat send ---
+            # chat (plaintext)
             if mtype == "chat.message":
                 text = msg.get("text", "")
                 try:
@@ -137,7 +126,6 @@ async def ws_room(
                     await _safe_json_send(websocket, {"type": "error", "reason": str(e)})
                     continue
 
-                # лог + bcast c seq
                 ev = await svc_sync.append(
                     room_slug=room_slug, type_="chat.message",
                     payload={
@@ -149,22 +137,47 @@ async def ws_room(
                     }
                 )
                 await db.commit()
-
-                payload = {"type": "chat.message", "seq": ev.id, **json.loads(ev.payload)}
-                await HUB.broadcast(room_slug, payload)
+                await HUB.broadcast(room_slug, {"type": "chat.message", "seq": ev.id, "id": saved.id,
+                                                "room_slug": room_slug, "user_id": user_id,
+                                                "text": saved.text, "created_at": saved.created_at.isoformat() + "Z"})
                 continue
 
-            # --- typing indicator ---
+            # chat (encrypted)
+            if mtype == "chat.message.enc":
+                b64 = msg.get("ciphertext_b64", "")
+                algo = msg.get("algo", "AES-256-GCM")
+                try:
+                    saved = await svc_chat.send_encrypted(room_slug=room_slug, user_id=user_id, b64_cipher=b64, algo=algo)
+                    await db.commit()
+                except ValueError as e:
+                    await _safe_json_send(websocket, {"type": "error", "reason": str(e)})
+                    continue
+
+                ev = await svc_sync.append(
+                    room_slug=room_slug, type_="chat.message.enc",
+                    payload={
+                        "id": saved.id,
+                        "room_slug": room_slug,
+                        "user_id": user_id,
+                        "algo": saved.enc_algo,
+                        "ciphertext_b64": saved.text,
+                        "created_at": saved.created_at.isoformat() + "Z",
+                    }
+                )
+                await db.commit()
+                await HUB.broadcast(room_slug, {"type": "chat.message.enc", "seq": ev.id,
+                                                "id": saved.id, "room_slug": room_slug, "user_id": user_id,
+                                                "algo": saved.enc_algo, "ciphertext_b64": saved.text,
+                                                "created_at": saved.created_at.isoformat() + "Z"})
+                continue
+
+            # typing
             if mtype == "chat.typing":
                 is_typing = bool(msg.get("is_typing", True))
-                await HUB.broadcast(
-                    room_slug,
-                    {"type": "chat.typing", "user_id": user_id, "is_typing": is_typing},
-                    exclude={user_id},
-                )
+                await HUB.broadcast(room_slug, {"type": "chat.typing", "user_id": user_id, "is_typing": is_typing}, exclude={user_id})
                 continue
 
-            # --- room state (owner/admin only) ---
+            # state.set (owner/admin)
             if mtype == "state.set":
                 if not is_privileged:
                     await _safe_json_send(websocket, {"type": "error", "reason": "forbidden"})
@@ -177,14 +190,13 @@ async def ws_room(
                     latest = await svc_state.set_locked(room_slug, bool(msg.get("is_locked"))); await db.commit(); changed = True
                 if "mute_all" in msg:
                     latest = await svc_state.set_mute_all(room_slug, bool(msg.get("mute_all"))); await db.commit(); changed = True
-
                 if changed and latest is not None:
                     ev = await svc_sync.append(room_slug=room_slug, type_="state.changed", payload=latest)
                     await db.commit()
                     await HUB.broadcast(room_slug, {"type": "state.changed", "seq": ev.id, **latest})
                 continue
 
-            # --- self media (any participant) ---
+            # self media
             if mtype == "media.self":
                 mic_muted = msg.get("mic_muted", None)
                 cam_off = msg.get("cam_off", None)
@@ -198,7 +210,7 @@ async def ws_room(
                 await HUB.broadcast(room_slug, {"type": "media.updated", "seq": ev.id, **state})
                 continue
 
-            # --- hands ---
+            # hands
             if mtype == "hand.raise":
                 latest = await svc_state.set_hand(room_slug, user_id, True); await db.commit()
                 ev = await svc_sync.append(room_slug=room_slug, type_="hand.raised", payload={"user_id": user_id, **latest})
@@ -213,11 +225,8 @@ async def ws_room(
                 await HUB.broadcast(room_slug, {"type": "hand.lowered", "seq": ev.id, "user_id": user_id, **latest})
                 continue
 
-            # --- graceful leave ---
             if mtype == "leave":
                 break
-
-            # неизвестный тип — игнор
 
     except (WebSocketDisconnect, SWebSocketDisconnect):
         pass
@@ -233,11 +242,9 @@ async def ws_room(
         finally:
             await db.close()
 
-
 async def _safe_json_send(ws: WebSocket, data: dict) -> None:
     if ws.client_state == WebSocketState.CONNECTED:
         await ws.send_json(data)
-
 
 async def _safe_close(ws: WebSocket, code: int) -> None:
     if ws.client_state == WebSocketState.CONNECTED:

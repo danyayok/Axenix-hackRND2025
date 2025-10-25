@@ -13,6 +13,7 @@ from app.api import auth as auth_api
 from app.api import rtc as rtc_api
 from app.api import moderation as moderation_api
 from app.api import sync as sync_api
+from app.api import crypto as crypto_api
 from app.api import ws as ws_api
 from app.db.base import Base
 from app.db.session import engine
@@ -29,11 +30,12 @@ tags_meta = [
     {"name": "rtc", "description": "ICE-конфигурация (STUN/TURN) для WebRTC."},
     {"name": "moderation", "description": "Роли (owner/admin/guest), kick и принудительный mute."},
     {"name": "sync", "description": "Синхронизация событий комнаты (sequence + догруз)."},
+    {"name": "crypto", "description": "Ключ комнаты и обмен обёртками (RSA-OAEP), шифр-чат."},
 ]
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.9.0",
+    version="1.0.0",
     default_response_class=ORJSONResponse,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -63,6 +65,7 @@ app.include_router(auth_api.router,         prefix="/api/auth",         tags=["a
 app.include_router(rtc_api.router,          prefix="/api/rtc",          tags=["rtc"])
 app.include_router(moderation_api.router,   prefix="/api/moderation",   tags=["moderation"])
 app.include_router(sync_api.router,         prefix="/api/sync",         tags=["sync"])
+app.include_router(crypto_api.router,       prefix="/api/crypto",       tags=["crypto"])
 
 # WS
 app.include_router(ws_api.router)

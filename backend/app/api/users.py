@@ -1,63 +1,67 @@
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
-from starlette.status import HTTP_201_CREATED, HTTP_400_BAD_REQUEST, HTTP_404_NOT_FOUND
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.status import HTTP_404_NOT_FOUND
+from pathlib import Path
+import shutil
+from typing import Optional
 
 from app.api.deps import get_db
 from app.repositories.user_repo import UserRepository
-from app.services.users import UserService
-from app.schemas.user import UserCreate, UserOut
-
-# NEW (для аватарок)
-from PIL import Image
-from uuid import uuid4
-import os
+from app.schemas.user import UserCreate, UserUpdate, UserOut
 
 router = APIRouter()
 
-def _svc(db: AsyncSession) -> UserService:
-    return UserService(UserRepository(db))
+@router.post("", response_model=UserOut)
+async def create_user(payload: UserCreate, db: AsyncSession = Depends(get_db)):
+    repo = UserRepository(db)
+    user = await repo.create(nickname=payload.nickname, avatar_url=payload.avatar_url)
+    # если сразу прислали публичный ключ
+    if payload.public_key_pem:
+        user.public_key_pem = payload.public_key_pem
+    await db.flush()
+    await db.refresh(user)
+    return UserOut.model_validate(user)
 
-@router.post("", response_model=UserOut, status_code=HTTP_201_CREATED)
-async def create_user(payload: UserCreate, db: AsyncSession = Depends(get_db)) -> UserOut:
-    u = await _svc(db).create_user(nickname=payload.nickname, avatar_url=payload.avatar_url)
-    return UserOut.model_validate(u)
+@router.get("/{user_id}", response_model=UserOut)
+async def get_user(user_id: int, db: AsyncSession = Depends(get_db)):
+    repo = UserRepository(db)
+    user = await repo.get(user_id)
+    if not user:
+        raise HTTPException(HTTP_404_NOT_FOUND, "User not found")
+    return UserOut.model_validate(user)
 
-# Загрузка аватарки (JPEG/PNG/WebP → сохраняем как JPEG)
-@router.post("/{user_id}/avatar", response_model=UserOut)
-async def upload_avatar(
-    user_id: int,
-    file: UploadFile = File(..., description="image/jpeg | image/png | image/webp"),
-    db: AsyncSession = Depends(get_db),
-) -> UserOut:
-    user = await UserRepository(db).get(user_id)
+@router.patch("/{user_id}", response_model=UserOut)
+async def update_user(user_id: int, payload: UserUpdate, db: AsyncSession = Depends(get_db)):
+    repo = UserRepository(db)
+    user = await repo.get(user_id)
     if not user:
         raise HTTPException(HTTP_404_NOT_FOUND, "User not found")
 
-    ctype = (file.content_type or "").lower()
-    if ctype not in {"image/jpeg", "image/png", "image/webp"}:
-        raise HTTPException(HTTP_400_BAD_REQUEST, "Only JPEG, PNG or WebP allowed")
+    if payload.nickname is not None:
+        user.nickname = payload.nickname
+    if payload.avatar_url is not None:
+        user.avatar_url = payload.avatar_url
+    if payload.public_key_pem is not None:  # NEW
+        user.public_key_pem = payload.public_key_pem
 
-    # если клиент прислал размер — проверим (~2 МБ)
-    if getattr(file, "size", None) and file.size > 2 * 1024 * 1024:
-        raise HTTPException(HTTP_400_BAD_REQUEST, "File too large")
+    await db.flush()
+    await db.refresh(user)
+    return UserOut.model_validate(user)
 
-    # читаем и безопасно перекодируем
-    try:
-        img = Image.open(file.file).convert("RGB")
-    except Exception:
-        raise HTTPException(HTTP_400_BAD_REQUEST, "Invalid image")
-
-    user_dir = os.path.join("static", "avatars", str(user_id))
-    os.makedirs(user_dir, exist_ok=True)
-    fname = f"{uuid4().hex}.jpg"
-    fpath = os.path.join(user_dir, fname)
-
-    # сохраняем JPEG без EXIF, умеренно сжимаем
-    img.save(fpath, format="JPEG", quality=85, optimize=True)
-
-    public_path = f"/static/avatars/{user_id}/{fname}"
-    updated = await UserRepository(db).update_avatar_url(user_id, public_path)
-    if not updated:
+# загрузка аватара (если у тебя этот эндпоинт уже есть — оставь свой вариант)
+@router.post("/{user_id}/avatar", response_model=UserOut)
+async def upload_avatar(user_id: int, file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+    repo = UserRepository(db)
+    user = await repo.get(user_id)
+    if not user:
         raise HTTPException(HTTP_404_NOT_FOUND, "User not found")
 
-    return UserOut.model_validate(updated)
+    Path("static/avatars").mkdir(parents=True, exist_ok=True)
+    dest = Path("static/avatars") / f"user_{user_id}{Path(file.filename).suffix}"
+    with dest.open("wb") as out:
+        shutil.copyfileobj(file.file, out)
+
+    user.avatar_url = f"/static/avatars/{dest.name}"
+    await db.flush()
+    await db.refresh(user)
+    return UserOut.model_validate(user)
