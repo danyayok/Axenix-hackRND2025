@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import NavDivMeet from './components/NavDiv';
 import './static/Profile.css';
 import Vector from './static/images/Vector.png';
@@ -17,133 +18,116 @@ export default function Profile() {
     const [userId, setUserId] = useState(null);
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const [isGuest, setIsGuest] = useState(true);
-    const [showLoginModal, setShowLoginModal] = useState(false);
-    const [loginData, setLoginData] = useState({ email: '', password: '' });
+    const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+    const [passwordData, setPasswordData] = useState({
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: ''
+    });
     const fileInputRef = useRef(null);
+    const navigate = useNavigate();
 
     // Проверяем авторизацию при загрузке
     useEffect(() => {
-        console.log('🔍 Проверка авторизации...');
         checkAuthStatus();
     }, []);
 
     const checkAuthStatus = async () => {
         try {
-            const token = localStorage.getItem('authToken');
             const authData = localStorage.getItem('authData');
-
-            console.log('📦 Token:', token ? 'есть' : 'нет');
-            console.log('📦 AuthData:', authData ? 'есть' : 'нет');
-
-            if (token && authData) {
+            if (authData) {
                 const data = JSON.parse(authData);
-                console.log('👤 Данные пользователя:', data);
-
                 setUserId(data.userId);
                 setIsLoggedIn(true);
                 setIsGuest(data.isGuest);
 
                 if (data.isGuest) {
-                    console.log('🎭 Загружаем данные гостя');
                     loadGuestData();
                 } else {
-                    console.log('👤 Загружаем данные пользователя с сервера');
                     await loadUserFromServer(data.userId);
                 }
             } else {
-                console.log('🚪 Показываем окно входа');
-                setShowLoginModal(true);
+                // Если не авторизован - редирект на страницу авторизации
+                navigate('/Auth');
             }
         } catch (error) {
-            console.error('❌ Ошибка загрузки авторизации:', error);
-            setShowLoginModal(true);
+            console.log('Ошибка загрузки авторизации:', error);
+            navigate('/Auth');
         }
-    };
-
-    // Создание гостевого пользователя
-    const createGuestUser = async () => {
-        try {
-            console.log('🎭 Создаем гостевого пользователя...');
-
-            const response = await fetch(`${API_BASE_URL}/users`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    nickname: 'Гость',
-                    avatar_url: null,
-                    public_key_pem: ""
-                }),
-            });
-
-            if (response.ok) {
-                const newUser = await response.json();
-                console.log('✅ Гость создан:', newUser);
-
-                // Получаем гостевой токен
-                const tokenResponse = await fetch(`${API_BASE_URL}/auth/token/guest`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        user_id: newUser.id
-                    }),
-                });
-
-                if (tokenResponse.ok) {
-                    const tokenData = await tokenResponse.json();
-                    console.log('✅ Токен получен:', tokenData);
-
-                    // Сохраняем данные
-                    localStorage.setItem('authToken', tokenData.access_token);
-                    localStorage.setItem('authData', JSON.stringify({
-                        userId: newUser.id,
-                        isGuest: true,
-                        userData: newUser
-                    }));
-
-                    setUserId(newUser.id);
-                    setIsLoggedIn(true);
-                    setIsGuest(true);
-                    setUserName(newUser.nickname || 'Гость');
-                    setShowLoginModal(false);
-
-                    return newUser;
-                } else {
-                    console.error('❌ Ошибка получения токена');
-                }
-            } else {
-                console.error('❌ Ошибка создания гостя');
-            }
-        } catch (error) {
-            console.error('❌ Ошибка создания гостя:', error);
-        }
-        return null;
     };
 
     // Загрузка пользователя с сервера
     const loadUserFromServer = async (userId) => {
         try {
-            console.log(`👤 Загружаем пользователя ${userId}...`);
             const response = await fetch(`${API_BASE_URL}/users/${userId}`);
             if (response.ok) {
                 const userData = await response.json();
-                console.log('✅ Пользователь загружен:', userData);
                 setUserName(userData.nickname || 'Пользователь');
                 if (userData.avatar_url) {
                     setAvatar(userData.avatar_url);
                 }
-                return userData;
-            } else {
-                console.error('❌ Ошибка загрузки пользователя');
             }
         } catch (error) {
-            console.error('❌ Ошибка загрузки пользователя:', error);
+            console.log('Ошибка загрузки пользователя:', error);
         }
-        return null;
     };
+
+    // Обновление пользователя на сервере
+    const updateUserOnServer = async (userId, nickname, avatarUrl = null) => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    nickname: nickname,
+                    avatar_url: avatarUrl
+                }),
+            });
+
+            if (response.ok) {
+                const updatedUser = await response.json();
+                return updatedUser;
+            } else {
+                throw new Error('Ошибка обновления');
+            }
+        } catch (error) {
+            console.log('Ошибка обновления пользователя:', error);
+            throw error;
+        }
+    };
+
+    // Загрузка аватара на сервер
+    const uploadAvatarToServer = async (userId, file) => {
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch(`${API_BASE_URL}/users/${userId}/avatar`, {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (response.ok) {
+            const userData = await response.json();
+            console.log('✅ Аватар загружен на сервер:', userData);
+
+            // Сервер возвращает относительный путь типа "/static/avatars/user_1.jpg"
+            // Нужно преобразовать его в полный URL
+            const relativeAvatarUrl = userData.avatar_url;
+            const fullAvatarUrl = `http://localhost:8088${relativeAvatarUrl}`;
+
+            console.log('🔄 Преобразованный URL:', fullAvatarUrl);
+            return fullAvatarUrl;
+        } else {
+            throw new Error('Ошибка загрузки аватара');
+        }
+    } catch (error) {
+        console.log('Ошибка загрузки аватара:', error);
+        throw error;
+    }
+};
 
     // Данные гостя из sessionStorage
     const loadGuestData = () => {
@@ -151,16 +135,13 @@ export default function Profile() {
         if (guestData) {
             try {
                 const data = JSON.parse(guestData);
-                console.log('📦 Данные гостя загружены:', data);
                 setUserName(data.userName || 'Гость');
                 if (data.avatar) {
                     setAvatar(data.avatar);
                 }
             } catch (error) {
-                console.error('❌ Ошибка загрузки данных гостя:', error);
+                console.error('Ошибка загрузки данных гостя:', error);
             }
-        } else {
-            console.log('📦 Нет сохраненных данных гостя');
         }
     };
 
@@ -171,146 +152,27 @@ export default function Profile() {
             lastUpdate: new Date().toISOString()
         };
         sessionStorage.setItem('guestProfileData', JSON.stringify(guestData));
-        console.log('💾 Данные гостя сохранены:', guestData);
     };
 
-    // Регистрация пользователя
-    const handleRegister = async () => {
-        const email = prompt('Введите email для регистрации:');
-        const password = prompt('Введите пароль:');
-        const nickname = prompt('Введите имя пользователя:');
-
-        if (email && password && nickname) {
-            if (password.length < 6) {
-                alert('Пароль должен содержать минимум 6 символов');
-                return;
-            }
-
-            setIsLoading(true);
-            try {
-                console.log('📝 Регистрируем пользователя...');
-                const response = await fetch(`${API_BASE_URL}/users`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        nickname: nickname,
-                        email: email,
-                        password: password,
-                        avatar_url: null,
-                        public_key_pem: ""
-                    }),
-                });
-
-                if (response.ok) {
-                    const newUser = await response.json();
-                    console.log('✅ Пользователь зарегистрирован:', newUser);
-
-                    alert('Регистрация успешна! Теперь войдите в систему.');
-                    setLoginData({ email: email, password: '' });
-
-                } else {
-                    const error = await response.json();
-                    console.error('❌ Ошибка регистрации:', error);
-                    alert('Ошибка регистрации: ' + (error.detail || 'Unknown error'));
-                }
-            } catch (error) {
-                console.error('❌ Ошибка регистрации:', error);
-                alert('Ошибка регистрации: ' + error.message);
-            } finally {
-                setIsLoading(false);
-            }
-        }
-    };
-
-    // Вход пользователя
-    const handleLogin = async (e) => {
-        e.preventDefault();
-        if (!loginData.email || !loginData.password) {
-            alert('Пожалуйста, заполните все поля');
-            return;
-        }
-
-        setIsLoading(true);
-        console.log('🔐 Пытаемся войти...');
-
-        try {
-            const response = await fetch(`${API_BASE_URL}/auth/login`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    email: loginData.email,
-                    password: loginData.password
-                }),
-            });
-
-            if (response.ok) {
-                const tokenData = await response.json();
-                console.log('✅ Вход успешен:', tokenData);
-
-                localStorage.setItem('authToken', tokenData.access_token);
-                localStorage.setItem('authData', JSON.stringify({
-                    userId: tokenData.user.id,
-                    isGuest: false,
-                    userData: tokenData.user
-                }));
-
-                setUserId(tokenData.user.id);
-                setIsLoggedIn(true);
-                setIsGuest(false);
-                setUserName(tokenData.user.nickname);
-                if (tokenData.user.avatar_url) {
-                    setAvatar(tokenData.user.avatar_url);
-                }
-                setShowLoginModal(false);
-            } else {
-                console.error('❌ Ошибка входа');
-                alert('Ошибка входа: проверьте email и пароль');
-            }
-        } catch (error) {
-            console.error('❌ Ошибка входа:', error);
-            alert('Ошибка входа: ' + error.message);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    // Продолжить как гость
-    const handleContinueAsGuest = async () => {
-        setIsLoading(true);
-        console.log('🎭 Продолжаем как гость...');
-        await createGuestUser();
-        setIsLoading(false);
-    };
-
-    // Выход
     const handleLogout = () => {
-        console.log('🚪 Выход из системы...');
         localStorage.removeItem('authToken');
         localStorage.removeItem('authData');
         sessionStorage.removeItem('guestProfileData');
-        setUserName('Гость');
-        setAvatar(ProfileIcon);
-        setUserId(null);
-        setIsLoggedIn(false);
-        setIsGuest(true);
-        setShowLoginModal(true);
+        // Редирект на страницу авторизации
+        navigate('/Auth');
     };
 
-    // Обработчики аватара и сохранения (упрощенные версии)
     const handleAvatarClick = () => {
         if (!isLoggedIn) {
-            setShowLoginModal(true);
+            navigate('/Auth');
             return;
         }
         fileInputRef.current?.click();
     };
 
-    const handleAvatarChange = (event) => {
+    const handleAvatarChange = async (event) => {
         const file = event.target.files[0];
+
         if (!file) return;
 
         if (!file.type.startsWith('image/')) {
@@ -324,21 +186,47 @@ export default function Profile() {
         }
 
         setIsLoading(true);
+
         const reader = new FileReader();
 
-        reader.onload = (e) => {
+        reader.onload = async (e) => {
             const newAvatar = e.target.result;
-            setAvatar(newAvatar);
 
-            if (isGuest) {
-                saveGuestData(userName, newAvatar);
-                setSaveStatus('Аватар обновлен!');
-            } else {
-                setSaveStatus('Аватар обновлен (только локально)!');
+            try {
+                if (isGuest) {
+                    // Для гостя сохраняем только локально
+                    saveGuestData(userName, newAvatar);
+                    setAvatar(newAvatar);
+                    setSaveStatus('Аватар обновлен!');
+                } else {
+                    // Для пользователя сохраняем на сервер
+                    console.log('🔄 Загружаем аватар на сервер...');
+
+                    // Сначала загружаем файл через отдельный эндпоинт
+                    const avatarUrl = await uploadAvatarToServer(userId, file);
+                    console.log('✅ URL аватара с сервера:', avatarUrl);
+
+                    // Затем обновляем пользователя с новым avatar_url
+                    const updatedUser = await updateUserOnServer(userId, userName, avatarUrl);
+                    console.log('✅ Пользователь обновлен:', updatedUser);
+
+                    // Обновляем UI
+                    setAvatar(avatarUrl);
+
+                    // Обновляем данные в localStorage
+                    const authData = JSON.parse(localStorage.getItem('authData') || '{}');
+                    authData.userData = { ...authData.userData, avatar_url: avatarUrl };
+                    localStorage.setItem('authData', JSON.stringify(authData));
+
+                    setSaveStatus('Аватар обновлен!');
+                }
+            } catch (error) {
+                console.error('❌ Ошибка сохранения аватара:', error);
+                setSaveStatus('Ошибка обновления аватара');
+            } finally {
+                setIsLoading(false);
+                setTimeout(() => setSaveStatus(''), 3000);
             }
-
-            setTimeout(() => setSaveStatus(''), 3000);
-            setIsLoading(false);
         };
 
         reader.onerror = () => {
@@ -347,66 +235,124 @@ export default function Profile() {
         };
 
         reader.readAsDataURL(file);
+        };
+
+        const handleSaveChanges = async () => {
+            if (!isLoggedIn) {
+                navigate('/Auth');
+                return;
+            }
+
+            setIsLoading(true);
+            setSaveStatus('Сохранение...');
+
+            try {
+                if (isGuest) {
+                    saveGuestData(userName, avatar);
+                    setSaveStatus('Изменения сохранены!');
+                } else {
+                    const result = await updateUserOnServer(userId, userName, avatar);
+                    if (result) {
+                        const authData = JSON.parse(localStorage.getItem('authData') || '{}');
+                        authData.userData = result;
+                        localStorage.setItem('authData', JSON.stringify(authData));
+                    }
+                    setSaveStatus('Изменения сохранены!');
+                }
+            } catch (error) {
+                setSaveStatus('Ошибка сохранения');
+            } finally {
+                setIsLoading(false);
+                setTimeout(() => setSaveStatus(''), 3000);
+            }
     };
 
-    const handleSaveChanges = async () => {
-        if (!isLoggedIn) {
-            setShowLoginModal(true);
+    const handleChangePassword = () => {
+        if (!isLoggedIn || isGuest) {
+            navigate('/Auth');
+            return;
+        }
+        setShowChangePasswordModal(true);
+    };
+
+    const handlePasswordSubmit = async (e) => {
+        e.preventDefault();
+
+        if (passwordData.newPassword !== passwordData.confirmPassword) {
+            alert('Новые пароли не совпадают');
+            return;
+        }
+
+        if (passwordData.newPassword.length < 6) {
+            alert('Пароль должен содержать минимум 6 символов');
             return;
         }
 
         setIsLoading(true);
-        setSaveStatus('Сохранение...');
 
         try {
-            if (isGuest) {
-                saveGuestData(userName, avatar);
-                setSaveStatus('Изменения сохранены!');
+            const authToken = localStorage.getItem('authToken');
+            const response = await fetch(`${API_BASE_URL}/users/${userId}/change-password`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${authToken}`,
+                },
+                body: JSON.stringify({
+                    current_password: passwordData.currentPassword,
+                    new_password: passwordData.newPassword
+                }),
+            });
+
+            if (response.ok) {
+                alert('Пароль успешно изменен!');
+                setShowChangePasswordModal(false);
+                setPasswordData({
+                    currentPassword: '',
+                    newPassword: '',
+                    confirmPassword: ''
+                });
             } else {
-                setSaveStatus('Изменения сохранены (только локально)!');
+                const errorData = await response.json();
+                alert('Ошибка изменения пароля: ' + (errorData.detail || 'Неверный текущий пароль'));
             }
         } catch (error) {
-            setSaveStatus('Ошибка сохранения');
+            console.error('Ошибка при изменении пароля:', error);
+            alert('Ошибка при изменении пароля: ' + error.message);
         } finally {
             setIsLoading(false);
-            setTimeout(() => setSaveStatus(''), 3000);
         }
     };
 
-    const handleKeyPress = (e) => {
-        if (e.key === 'Enter') {
-            handleSaveChanges();
-        }
-    };
-
-    // Функции которые нужно добавить (заглушки)
-    const handleChangePassword = () => {
-        if (!isLoggedIn || isGuest) {
-            setShowLoginModal(true);
-            return;
-        }
-        alert('Смена пароля будет доступна позже');
+    // Функция закрытия модального окна
+    const handleClosePasswordModal = () => {
+        setShowChangePasswordModal(false);
+        setPasswordData({
+            currentPassword: '',
+            newPassword: '',
+            confirmPassword: ''
+        });
     };
 
     const handleConferenceHistory = () => {
         if (!isLoggedIn) {
-            setShowLoginModal(true);
+            navigate('/Auth');
             return;
         }
-        alert('История конференций будет доступна позже');
+        alert('История конференций загружена');
     };
 
     const handleNotificationSettings = () => {
         if (!isLoggedIn) {
-            setShowLoginModal(true);
+            navigate('/Auth');
             return;
         }
-        alert('Настройки уведомлений будут доступны позже');
+        alert('Настройки уведомлений открыты');
     };
 
     const handleEditProfile = () => {
         if (!isLoggedIn) {
-            setShowLoginModal(true);
+            navigate('/Auth');
             return;
         }
         const nameInput = document.querySelector('.name-input');
@@ -416,25 +362,58 @@ export default function Profile() {
         }
     };
 
-    const handleDeleteAccount = () => {
+    const handleDeleteAccount = async () => {
         if (!isLoggedIn || isGuest) {
-            setShowLoginModal(true);
+            navigate('/Auth');
             return;
         }
-        alert('Удаление аккаунта будет доступно позже');
+
+        const confirmDelete = window.confirm(
+            'Вы уверены, что хотите удалить аккаунт?\nВсе ваши данные будут безвозвратно удалены.\nЭто действие нельзя отменить.'
+        );
+
+        if (confirmDelete) {
+            setIsLoading(true);
+
+            try {
+                // Получаем токен для авторизации
+                const authToken = localStorage.getItem('authToken');
+
+                // Отправляем запрос на удаление пользователя
+                const response = await fetch(`${API_BASE_URL}/users/${userId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+
+                if (response.ok) {
+                    // Успешно удалили из базы - очищаем локальные данные
+                    localStorage.removeItem('authToken');
+                    localStorage.removeItem('authData');
+                    sessionStorage.removeItem('guestProfileData');
+
+                    // Перенаправляем на страницу авторизации
+                    navigate('/Auth');
+                } else {
+                    const error = await response.json();
+                    alert('Ошибка удаления аккаунта: ' + (error.detail || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Ошибка при удалении аккаунта:', error);
+                alert('Ошибка при удалении аккаунта: ' + error.message);
+            } finally {
+                setIsLoading(false);
+            }
+        }
     };
 
-    const debugData = () => {
-        const authData = localStorage.getItem('authData');
-        const guestData = sessionStorage.getItem('guestProfileData');
-        console.log('🔍 DEBUG:');
-        console.log('Auth Data:', authData);
-        console.log('Guest Data:', guestData);
-        console.log('State:', { userName, userId, isLoggedIn, isGuest });
-        alert(`DEBUG:\nAuth: ${authData}\nGuest: ${guestData}\nState: ${JSON.stringify({ userName, userId, isLoggedIn, isGuest })}`);
+    const handleKeyPress = (e) => {
+        if (e.key === 'Enter') {
+            handleSaveChanges();
+        }
     };
-
-    console.log('🎨 Рендерим компонент...', { userName, userId, isLoggedIn, isGuest, showLoginModal });
 
     return (
         <>
@@ -453,16 +432,6 @@ export default function Profile() {
                         Профиль {isGuest ? '(Гость)' : '(Пользователь)'}
                         {userId && !isGuest && ` (ID: ${userId})`}
                     </h1>
-
-                    {isLoggedIn && (
-                        <button onClick={handleLogout} className="logout-btn">
-                            Выйти
-                        </button>
-                    )}
-
-                    <button onClick={debugData} className="debug-btn">
-                        Debug Data
-                    </button>
 
                     {saveStatus && (
                         <div className={`save-status ${saveStatus.includes('Ошибка') ? 'error' : 'success'}`}>
@@ -546,50 +515,18 @@ export default function Profile() {
                             >
                                 Удалить аккаунт
                             </button>
+                            {isLoggedIn && (
+                                <button
+                                    className="profile-btn delete-btn"
+                                    onClick={handleLogout}
+                                >
+                                    Выйти
+                                </button>
+                            )}
                         </div>
                     </div>
                 </section>
             </main>
-
-            {/* Модальное окно входа */}
-            {showLoginModal && (
-                <div className="modal-overlay">
-                    <div className="login-modal">
-                        <h2>Вход в систему</h2>
-                        <form onSubmit={handleLogin}>
-                            <div className="input-group">
-                                <label>Email:</label>
-                                <input
-                                    type="email"
-                                    value={loginData.email}
-                                    onChange={(e) => setLoginData({...loginData, email: e.target.value})}
-                                    placeholder="user@example.com"
-                                />
-                            </div>
-                            <div className="input-group">
-                                <label>Пароль:</label>
-                                <input
-                                    type="password"
-                                    value={loginData.password}
-                                    onChange={(e) => setLoginData({...loginData, password: e.target.value})}
-                                    placeholder="Минимум 6 символов"
-                                />
-                            </div>
-                            <div className="modal-actions">
-                                <button type="submit" disabled={isLoading}>
-                                    {isLoading ? 'Вход...' : 'Войти'}
-                                </button>
-                                <button type="button" onClick={handleRegister}>
-                                    Зарегистрироваться
-                                </button>
-                                <button type="button" onClick={handleContinueAsGuest}>
-                                    Продолжить как гость
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
 
             <footer className="footer">
                 <p className="copyright">
@@ -597,6 +534,77 @@ export default function Profile() {
                     Все права защищены
                 </p>
             </footer>
+
+            {/* Модальное окно смены пароля */}
+            {showChangePasswordModal && (
+                <div className="modal-overlay">
+                    <div className="password-modal">
+                        <div className="modal-header">
+                            <h2 className="modal-title">Смена пароля</h2>
+                            <button className="modal-close" onClick={handleClosePasswordModal}>×</button>
+                        </div>
+
+                        <form className="password-form" onSubmit={handlePasswordSubmit}>
+                            <div className="form-group">
+                                <label className="form-label">Текущий пароль</label>
+                                <input
+                                    type="password"
+                                    className="form-input"
+                                    value={passwordData.currentPassword}
+                                    onChange={(e) => setPasswordData({...passwordData, currentPassword: e.target.value})}
+                                    placeholder="Введите текущий пароль"
+                                    required
+                                    disabled={isLoading}
+                                />
+                            </div>
+
+                            <div className="form-group">
+                                <label className="form-label">Новый пароль</label>
+                                <input
+                                    type="password"
+                                    className="form-input"
+                                    value={passwordData.newPassword}
+                                    onChange={(e) => setPasswordData({...passwordData, newPassword: e.target.value})}
+                                    placeholder="Минимум 6 символов"
+                                    required
+                                    disabled={isLoading}
+                                />
+                            </div>
+
+                            <div className="form-group">
+                                <label className="form-label">Подтвердите пароль</label>
+                                <input
+                                    type="password"
+                                    className="form-input"
+                                    value={passwordData.confirmPassword}
+                                    onChange={(e) => setPasswordData({...passwordData, confirmPassword: e.target.value})}
+                                    placeholder="Повторите новый пароль"
+                                    required
+                                    disabled={isLoading}
+                                />
+                            </div>
+
+                            <div className="form-actions">
+                                <button
+                                    type="button"
+                                    className="cancel-btn"
+                                    onClick={handleClosePasswordModal}
+                                    disabled={isLoading}
+                                >
+                                    Отмена
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="submit-btn"
+                                    disabled={isLoading}
+                                >
+                                    {isLoading ? 'Смена...' : 'Сменить пароль'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </>
     );
 }

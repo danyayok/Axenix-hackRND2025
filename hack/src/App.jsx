@@ -1,5 +1,6 @@
 import { Routes, Route } from 'react-router-dom';
-import Error from './pages/404';
+import ProtectedRoute from './pages/components/ProtectedRoute';
+
 import Conference from './pages/Conf.jsx';
 import Home from './pages/Home.jsx';
 import Invite from './pages/Invite.jsx';
@@ -8,6 +9,8 @@ import PlanConference from './pages/Plan-Conference.jsx';
 import Settings from './pages/Settings.jsx';
 import Profile from './pages/Profile.jsx';
 import CreateConference from './pages/Create.jsx';
+import Auth from './Auth.jsx';
+import NotFoundPage from './pages/404';
 
 import './App.css'
 
@@ -16,14 +19,44 @@ function App() {
     <>
       <Routes>
         <Route path='/' element={<Home />} />
+        <Route path='/Auth' element={<Auth />} />
+
+        {/* Защищенные маршруты */}
+        <Route path='/Profile' element={
+          <ProtectedRoute>
+            <Profile />
+          </ProtectedRoute>
+        } />
+
+        <Route path='/Conference' element={
+          <ProtectedRoute>
+            <Conference />
+          </ProtectedRoute>
+        } />
+
+        <Route path='/Create' element={
+          <ProtectedRoute>
+            <CreateConference />
+          </ProtectedRoute>
+        } />
+
+        <Route path='/Settings' element={
+          <ProtectedRoute>
+            <Settings />
+          </ProtectedRoute>
+        } />
+
+        <Route path='/Plan-Conference' element={
+          <ProtectedRoute>
+            <CreateConference />
+          </ProtectedRoute>
+        } />
+
+        {/* Остальные маршруты */}
         <Route path='/Invite' element={<Invite/>} />
-        <Route path='/Conference' element={<Conference/>} />
         <Route path='/Notification' element={<Notification />} />
-        <Route path='/Settings' element={<Settings />} />
-        <Route path='/Profile' element={<Profile />} />
-        <Route path='/Plan-Conference' element={<PlanConference />} />
-        <Route path='/Create' element={<CreateConference/>}></Route> 
-        <Route path='*' element={<Error />} />
+        <Route path="/room/:slug" element={<Conference />} />
+        <Route path='*' element={<NotFoundPage />} />
       </Routes>
     </>
   )

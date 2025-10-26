@@ -59,67 +59,10 @@ export default function CreateConference() {
         }));
     };
 
-    // Функция для создания уведомления о создании конференции
-    const createConferenceNotification = async (userId, roomData) => {
-        try {
-            const authToken = localStorage.getItem('authToken');
-            const notificationData = {
-                user_id: userId,
-                room_slug: roomData.slug,
-                title: `Конференция создана: ${roomData.title}`,
-                message: `Вы создали конференцию "${roomData.title}". Ссылка для входа: /room/${roomData.slug}`,
-                type: "conference_created"
-            };
-
-            await fetch(`${API_BASE_URL}/notifications`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${authToken}`,
-                },
-                body: JSON.stringify(notificationData)
-            });
-        } catch (error) {
-            console.error('Ошибка создания уведомления:', error);
-        }
-    };
-
-    // Функция для присоединения пользователя к комнате
-    const joinUserToRoom = async (roomSlug, userId, authToken) => {
-        try {
-            const joinData = {
-                room_slug: roomSlug,
-                user_id: userId
-            };
-
-            console.log('Присоединение пользователя к комнате:', joinData);
-
-            const response = await fetch(`${API_BASE_URL}/participants/join`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${authToken}`,
-                },
-                body: JSON.stringify(joinData)
-            });
-
-            if (response.ok) {
-                const joinResult = await response.json();
-                console.log('Пользователь присоединен к комнате:', joinResult);
-                return true;
-            } else {
-                console.warn('Не удалось автоматически присоединить пользователя к комнате');
-                return false;
-            }
-        } catch (error) {
-            console.error('Ошибка присоединения к комнате:', error);
-            return false;
-        }
-    };
-
     const handleSubmit = async (e) => {
         e.preventDefault();
 
+        // Дополнительная проверка перед отправкой
         if (!userId) {
             setMessage('error:Ошибка авторизации. Пожалуйста, войдите снова.');
             navigate('/Auth');
@@ -156,9 +99,6 @@ export default function CreateConference() {
                 const roomData = await response.json();
                 console.log('Комната создана успешно:', roomData);
 
-                // Создаем уведомление о создании конференции
-                await createConferenceNotification(userId, roomData);
-
                 setMessage('success:Конференция создана успешно!');
 
                 // После создания комнаты автоматически присоединяем пользователя
@@ -182,7 +122,7 @@ export default function CreateConference() {
                     navigate(`/room/${roomData.slug}`);
                 }, 1500);
 
-                // Сброс формы
+                // Сброс формы ТОЛЬКО после успешного создания
                 setFormData({
                     title: '',
                     description: '',
@@ -194,12 +134,70 @@ export default function CreateConference() {
                 const errorData = await response.json();
                 console.error('Ошибка создания комнаты:', errorData);
                 setMessage(`error:Ошибка создания конференции: ${errorData.detail || 'Неизвестная ошибка'}`);
+
+                // НЕ сбрасываем форму при ошибке
             }
         } catch (error) {
             console.error('Ошибка:', error);
             setMessage(`error:Ошибка сети: ${error.message}`);
+
+            // НЕ сбрасываем форму при ошибке сети
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    // Функция для присоединения пользователя к комнате
+    const joinUserToRoom = async (roomSlug, userId, authToken) => {
+        try {
+            const joinData = {
+                room_slug: roomSlug,
+                user_id: userId
+            };
+
+            console.log('Присоединение пользователя к комнате:', joinData);
+
+            const response = await fetch(`${API_BASE_URL}/participants/join`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${authToken}`,
+                },
+                body: JSON.stringify(joinData)
+            });
+
+            if (response.ok) {
+                const joinResult = await response.json();
+                console.log('Пользователь присоединен к комнате:', joinResult);
+                return true;
+            } else {
+                console.warn('Не удалось автоматически присоединить пользователя к комнате');
+                return false;
+            }
+        } catch (error) {
+            console.error('Ошибка присоединения к комнате:', error);
+            return false;
+        }
+    };
+
+    // Функция для получения списка комнат (для проверки)
+    const fetchRooms = async () => {
+        try {
+            const authToken = localStorage.getItem('authToken');
+            const response = await fetch(`${API_BASE_URL}/rooms`, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${authToken}`,
+                },
+            });
+
+            if (response.ok) {
+                const rooms = await response.json();
+                console.log('Список комнат:', rooms);
+                return rooms;
+            }
+        } catch (error) {
+            console.error('Ошибка получения списка комнат:', error);
         }
     };
 
@@ -412,10 +410,6 @@ export default function CreateConference() {
                             <li style={{ marginBottom: '0.5rem', paddingLeft: '1rem', position: 'relative' }}>
                                 <span style={{ position: 'absolute', left: 0, color: 'var(--primary-color)' }}>•</span>
                                 Вы автоматически присоединяетесь к созданной комнате
-                            </li>
-                            <li style={{ marginBottom: '0.5rem', paddingLeft: '1rem', position: 'relative' }}>
-                                <span style={{ position: 'absolute', left: 0, color: 'var(--primary-color)' }}>•</span>
-                                Создается уведомление в истории конференций
                             </li>
                         </ul>
                     </div>

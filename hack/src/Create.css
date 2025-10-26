@@ -1,0 +1,187 @@
+.create-conference-section {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 2rem 0;
+  }
+  
+  .create-title {
+    font-family: var(--font-main);
+    font-weight: 600;
+    font-size: 2.5rem;
+    color: var(--text-dark);
+    text-align: center;
+    margin-bottom: 3rem;
+  }
+  
+  .conference-form {
+    background: white;
+    border-radius: 25px;
+    padding: 3rem;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+  }
+  
+
+  .form-group {
+    margin-bottom: 2rem;
+  }
+  
+  .form-label {
+    font-family: var(--font-main);
+    font-weight: 600;
+    color: var(--text-dark);
+    font-size: 1.25rem;
+    margin-bottom: 1rem;
+    display: block;
+  }
+  
+  .form-input {
+    width: 100%;
+    padding: 1.25rem 1.5rem;
+    border: none;
+    border-radius: 15px;
+    font-size: 1.125rem;
+    font-family: var(--font-main);
+    background: #f8fafc;
+    color: #334155;
+    transition: all 0.3s ease;
+  }
+  
+  .form-input:focus {
+    outline: none;
+    background: #f1f5f9;
+  }
+  
+
+  .form-textarea {
+    resize: vertical;
+    min-height: 120px;
+  }
+  
+
+  .datetime-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+  
+
+  .create-button {
+    width: 100%;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    padding: 1.5rem 2rem;
+    border-radius: 15px;
+    font-size: 1.25rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-top: 1rem;
+  }
+  
+  .create-button:hover {
+    background: #6a1f8f;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(124, 37, 165, 0.3);
+  }
+  
+.create-message {
+    padding: 12px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+    text-align: center;
+    font-weight: bold;
+}
+
+.create-message.success {
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.create-message.error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.form-hint {
+    color: #6c757d;
+    font-size: 0.875rem;
+    margin-top: 5px;
+    display: block;
+}
+
+.form-actions {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.demo-button {
+    background-color: #6c757d;
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: background-color 0.2s;
+}
+
+.demo-button:hover:not(:disabled) {
+    background-color: #5a6268;
+}
+
+.demo-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.create-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+  @media (max-width: 390px) {
+    .create-conference-section {
+      padding: 1rem;
+      max-width: 100%;
+    }
+  
+    .create-title {
+      font-size: 2rem;
+      margin-bottom: 2rem;
+    }
+  
+    .conference-form {
+      padding: 2rem;
+      border-radius: 20px;
+    }
+  
+    .form-group {
+      margin-bottom: 1.5rem;
+    }
+  
+    .form-label {
+      font-size: 1.125rem;
+      margin-bottom: 0.75rem;
+    }
+  
+    .form-input {
+      padding: 1rem 1.25rem;
+      font-size: 1rem;
+    }
+  
+    .datetime-group {
+      grid-template-columns: 1fr;
+      gap: 1rem;
+    }
+  
+    .create-button {
+      padding: 1.25rem 1.5rem;
+      font-size: 1.125rem;
+    }
+  }
+
+
