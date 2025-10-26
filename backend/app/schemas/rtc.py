@@ -1,10 +1,18 @@
-from typing import List, Optional, Union
 from pydantic import BaseModel
 
+class TokenRequest(BaseModel):
+    username: str
+    room_name: str
+
+class TokenResponse(BaseModel):
+    token: str
+    server_url: str
+    room_name: str
+
 class RTCIceServer(BaseModel):
-    urls: Union[str, List[str]]
-    username: Optional[str] = None
-    credential: Optional[str] = None
+    urls: str
+    username: str | None = None
+    credential: str | None = None
 
 class RTCConfigOut(BaseModel):
-    iceServers: List[RTCIceServer]
+    iceServers: list[RTCIceServer]

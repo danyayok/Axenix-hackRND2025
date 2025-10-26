@@ -9,33 +9,62 @@ ONLINE_TTL_SECONDS = 45
 class ParticipantService:
     def __init__(self, m_repo: MembershipRepository, r_repo: RoomRepository, u_repo: UserRepository):
         self.m_repo = m_repo
-        self.r_repo = r_repo
-        self.u_repo = u_repo
+        self.r_repo = r_repo  # room_repo
+        self.u_repo = u_repo  # user_repo
 
-    async def join(self, *, room_slug: str, user_id: int, invite_key: str | None) -> Membership:
-        room = await self.r_repo.get_by_slug(room_slug)
+    async def join(self, room_slug: str, user_id: int, invite_key: str | None = None) -> Membership:
+        # ИСПРАВЛЕННЫЕ НАЗВАНИЯ АТРИБУТОВ:
+        room = await self.r_repo.get_by_slug(room_slug)  # было: self.room_repo
         if not room:
             raise ValueError("room_not_found")
 
-        if room.is_private:
-            if not invite_key or invite_key != room.invite_key:
-                raise ValueError("invite_required_or_invalid")
-
-        user = await self.u_repo.get(user_id)
+        user = await self.u_repo.get(user_id)  # было: self.user_repo
         if not user:
             raise ValueError("user_not_found")
 
-        existing = await self.m_repo.get_active(room_id=room.id, user_id=user_id)
+        # ПРОВЕРЯЕМ, ЯВЛЯЕТСЯ ЛИ ПОЛЬЗОВАТЕЛЬ СОЗДАТЕЛЕМ КОМНАТЫ
+        is_creator = room.created_by == user_id
+
+        # Если пользователь создатель комнаты - пропускаем все проверки
+        if is_creator:
+            print(f"DEBUG: creator joining room, bypassing checks")
+        else:
+            # Для НЕ-создателей проверяем блокировку комнаты
+            if room.is_locked:
+                print(f"DEBUG: room is locked, user is not creator")
+                raise ValueError("room_locked")
+
+            # Для НЕ-создателей проверяем приватность комнаты
+            if room.is_private:
+                if not invite_key or invite_key != room.invite_key:
+                    print(f"DEBUG: invalid invite - expected: {room.invite_key}, got: {invite_key}")
+                    raise ValueError("invite_required_or_invalid")
+
+        # Проверяем, не присоединен ли уже пользователь
+        existing = await self.m_repo.get_active(room_id=room.id, user_id=user_id)  # было: self.membership_repo
         if existing:
+            # Обновляем last_seen если уже присоединен
             existing.last_seen = datetime.utcnow()
+            # Используем session из репозитория для flush
+            await self.m_repo.session.flush()  # было: self.db
+            await self.m_repo.session.refresh(existing)
             return existing
 
-        is_owner = (room.created_by is not None and str(room.created_by) == str(user_id))
-        if room.is_locked and not is_owner:
-            raise ValueError("room_locked")
+        # Создаем новое членство
+        membership = Membership(
+            room_id=room.id,
+            user_id=user_id,
+            role="owner" if is_creator else "participant",  # Создатель становится owner
+            status="active",
+            last_seen=datetime.utcnow(),
+        )
 
-        role = "owner" if is_owner else "guest"
-        return await self.m_repo.create_active(room_id=room.id, user_id=user_id, role=role)
+        self.m_repo.session.add(membership)  # было: self.db
+        await self.m_repo.session.flush()    # было: self.db
+        await self.m_repo.session.refresh(membership)  # было: self.db
+
+        print(f"DEBUG: user {user_id} joined room {room_slug} as {membership.role}")
+        return membership
 
     async def leave(self, *, room_slug: str, user_id: int) -> Membership | None:
         room = await self.r_repo.get_by_slug(room_slug)

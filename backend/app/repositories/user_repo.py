@@ -3,12 +3,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.user import User
 
+
 class UserRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create(self, *, nickname: str, avatar_url: str | None) -> User:
-        user = User(nickname=nickname, avatar_url=avatar_url)
+    async def create(self, *, nickname: str, avatar_url: str | None = None,
+                    email: str | None = None, password_hash: str | None = None) -> User:
+        user = User(
+            nickname=nickname,
+            avatar_url=avatar_url,
+            email=email,
+            password_hash=password_hash
+        )
         self.session.add(user)
         await self.session.flush()
         await self.session.refresh(user)
@@ -17,12 +24,32 @@ class UserRepository:
     async def get(self, user_id: int) -> Optional[User]:
         q = await self.session.execute(select(User).where(User.id == user_id))
         return q.scalar_one_or_none()
-
+    async def get_by_email(self, email: str) -> Optional[User]:
+        q = await self.session.execute(select(User).where(User.email == email))
+        return q.scalar_one_or_none()
     async def update_avatar_url(self, user_id: int, avatar_url: str) -> Optional[User]:
         user = await self.get(user_id)
         if not user:
             return None
         user.avatar_url = avatar_url
+        await self.session.flush()
+        await self.session.refresh(user)
+        return user
+
+    async def delete(self, user_id: int) -> bool:
+        user = await self.get(user_id)
+        if not user:
+            return False
+
+        await self.session.delete(user)
+        await self.session.flush()
+        return True
+
+    async def change_password(self, user_id: int, new_password_hash: str) -> Optional[User]:
+        user = await self.get(user_id)
+        if not user:
+            return None
+        user.password_hash = new_password_hash
         await self.session.flush()
         await self.session.refresh(user)
         return user

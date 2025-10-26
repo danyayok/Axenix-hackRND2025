@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import DateTime, ForeignKey, String, Boolean, Text, Integer
+from sqlalchemy import String, DateTime, Text, Integer, ForeignKey, Boolean, Index
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
@@ -12,6 +12,11 @@ class Message(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
-    # NEW: для зашифрованных сообщений
+    # Для зашифрованных сообщений (уже существующие поля)
     is_encrypted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     enc_algo: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    # Индексы для оптимизации запросов
+    __table_args__ = (
+        Index('ix_message_room_created', 'room_id', 'created_at'),
+    )
