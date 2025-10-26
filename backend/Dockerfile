@@ -22,7 +22,7 @@ COPY . .
 RUN mkdir -p static/avatars static/covers static/records
 
 # Открытие порта
-EXPOSE 8000
+EXPOSE 8088
 
 # Команда для запуска приложения
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8088"]
