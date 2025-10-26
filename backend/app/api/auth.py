@@ -38,15 +38,23 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
     if not user or not user.password_hash:
         raise HTTPException(HTTP_401_UNAUTHORIZED, "Invalid credentials")
 
-    # Проверяем пароль (нужно добавить verify_password в security.py)
+    # Проверяем пароль
     if not verify_password(payload.password, user.password_hash):
         raise HTTPException(HTTP_401_UNAUTHORIZED, "Invalid credentials")
 
-    # Создаем токен через твою функцию
+    # Создаем токен
     token = create_access_token(user_id=user.id)
 
     return TokenOut(
         access_token=token,
         token_type="bearer",
-        expires_in=settings.jwt_ttl_seconds
+        expires_in=settings.jwt_ttl_seconds,
+        user_id=user.id,  # Добавляем ID пользователя
+        user=UserOut(     # Добавляем данные пользователя
+            id=user.id,
+            nickname=user.nickname,
+            avatar_url=user.avatar_url,
+            public_key_pem=user.public_key_pem,
+            email=user.email
+        )
     )

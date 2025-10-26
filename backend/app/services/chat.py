@@ -72,8 +72,7 @@ class ChatService:
         room = await self.r_repo.get_by_slug(room_slug)
         if not room:
             raise ValueError("room_not_found")
-        return await self.m_repo.list_history(room_id=room.id, limit=limit, before_id=before_id)
-
+        return await self.m_repo.get_room_messages(room_id=room.id, limit=limit, before_id=before_id)
     async def delete(self, *, room_slug: str, message_id: int) -> bool:
         room = await self.r_repo.get_by_slug(room_slug)
         if not room:

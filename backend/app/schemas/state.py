@@ -1,17 +1,16 @@
-from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, List
+from pydantic import BaseModel
+from typing import List, Optional
 
 class RoomStateOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
     room_slug: str
     topic: Optional[str] = None
-    is_locked: bool
-    mute_all: bool
-    online_count: int
-    raised_hands: List[int]  # user_id список
+    is_locked: bool = False
+    mute_all: bool = False
+    online_count: int = 0
+    raised_hands: List[int] = []
 
 class SetTopicIn(BaseModel):
-    topic: Optional[str] = Field(default=None, max_length=200)
+    topic: str
 
 class ToggleIn(BaseModel):
     value: bool

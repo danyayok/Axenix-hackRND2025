@@ -5,7 +5,7 @@ from datetime import datetime
 class ParticipantJoinIn(BaseModel):
     room_slug: str
     user_id: int
-    invite_key: Optional[str] = None  # для приватных комнат
+    invite_key: Optional[str] = None
 
 class ParticipantLeaveIn(BaseModel):
     room_slug: str

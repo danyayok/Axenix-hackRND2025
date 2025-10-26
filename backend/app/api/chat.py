@@ -9,6 +9,7 @@ from app.repositories.message_repo import MessageRepository
 from app.repositories.user_repo import UserRepository
 from app.services.chat import ChatService
 from app.schemas.chat import MessageOut, HistoryOut
+from app.schemas.message import MessageCreate
 
 router = APIRouter()
 
@@ -48,3 +49,70 @@ async def delete_message(
 
     ok = await ChatService(MessageRepository(db), rrepo, UserRepository(db)).delete(room_slug=room_slug, message_id=message_id)
     return {"ok": bool(ok)}
+
+
+@router.post("/{room_slug}")
+async def send_message(
+        room_slug: str,
+        payload: MessageCreate,
+        db: AsyncSession = Depends(get_db)
+):
+    # Находим комнату
+    room_repo = RoomRepository(db)
+    room = await room_repo.get_by_slug(room_slug)
+    if not room:
+        raise HTTPException(404, "Room not found")
+
+    # Проверяем, что пользователь является участником
+    participant_repo = ParticipantRepository(db)
+    participant = await participant_repo.get_participant(room.id, payload.user_id)
+    if not participant:
+        raise HTTPException(403, "User is not a participant of this room")
+
+    # Сохраняем сообщение
+    message_repo = MessageRepository(db)
+    message = await message_repo.create(
+        room_id=room.id,
+        user_id=payload.user_id,
+        text=payload.text
+    )
+
+    await db.commit()
+    await db.refresh(message)
+
+    return MessageOut.from_orm(message)
+
+
+@router.get("/{room_slug}/recent")
+async def get_recent_messages(
+        room_slug: str,
+        limit: int = Query(20, ge=1, le=100),
+        db: AsyncSession = Depends(get_db)
+):
+    """Получить последние сообщения (новый эндпоинт)"""
+    room_repo = RoomRepository(db)
+    room = await room_repo.get_by_slug(room_slug)
+    if not room:
+        raise HTTPException(404, "Room not found")
+
+    message_repo = MessageRepository(db)
+    messages = await message_repo.get_recent_room_messages(room.id, limit)
+
+    return HistoryOut(items=messages)
+
+
+@router.get("/{room_slug}/count")
+async def get_message_count(
+        room_slug: str,
+        db: AsyncSession = Depends(get_db)
+):
+    """Получить количество сообщений в комнате (новый эндпоинт)"""
+    room_repo = RoomRepository(db)
+    room = await room_repo.get_by_slug(room_slug)
+    if not room:
+        raise HTTPException(404, "Room not found")
+
+    message_repo = MessageRepository(db)
+    count = await message_repo.count_room_messages(room.id)
+
+    return {"room_slug": room_slug, "message_count": count}

@@ -23,6 +23,8 @@ from app.db.base import Base
 from app.db.session import engine
 from app.middleware.metrics_middleware import MetricsMiddleware  # Импортируем исправленный middleware
 from fastapi.middleware.cors import CORSMiddleware
+from app.api import notifications
+from app.api import rtc
 
 Path("static/avatars").mkdir(parents=True, exist_ok=True)
 Path("static/covers").mkdir(parents=True, exist_ok=True)
@@ -66,7 +68,7 @@ app.add_middleware(MetricsMiddleware)
 @app.on_event("startup")
 async def on_startup() -> None:
     async with engine.begin() as conn:
-        # await conn.run_sync(Base.metadata.drop_all) Дропните если ошибки тип none is_private и т.д.
+        # await conn.run_sync(Base.metadata.drop_all) # Дропните если ошибки тип none is_private и т.д.
         await conn.run_sync(Base.metadata.create_all)
 
 @app.get("/", include_in_schema=False)
@@ -91,6 +93,8 @@ app.include_router(crypto_api.router,       prefix="/api/crypto",       tags=["c
 app.include_router(covers_api.router,       prefix="/api/covers",       tags=["covers"])
 app.include_router(recordings_api.router,   prefix="/api/recordings",   tags=["recordings"])
 app.include_router(metrics_api.router,      prefix="/api/metrics",      tags=["metrics"])
+app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
+app.include_router(rtc.router, prefix="/api/rtc", tags=["rtc"])
 
 # WebSocket
 app.include_router(ws_api.router)

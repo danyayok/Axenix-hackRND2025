@@ -35,3 +35,21 @@ class UserRepository:
         await self.session.flush()
         await self.session.refresh(user)
         return user
+
+    async def delete(self, user_id: int) -> bool:
+        user = await self.get(user_id)
+        if not user:
+            return False
+
+        await self.session.delete(user)
+        await self.session.flush()
+        return True
+
+    async def change_password(self, user_id: int, new_password_hash: str) -> Optional[User]:
+        user = await self.get(user_id)
+        if not user:
+            return None
+        user.password_hash = new_password_hash
+        await self.session.flush()
+        await self.session.refresh(user)
+        return user
